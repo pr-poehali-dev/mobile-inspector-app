@@ -1,140 +1,798 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 
 interface Props { onBack: () => void; }
 
-interface CheckItem { id: number; text: string; done: boolean; }
-interface Checklist { id: number; title: string; items: CheckItem[]; template?: boolean; }
+type AnswerValue = "yes" | "no" | "na" | null;
 
-const TEMPLATES: Checklist[] = [
-  { id: 1, title: "Оформление заявки", template: true, items: [
-    { id: 1, text: "Заполнить форму заявки", done: false },
-    { id: 2, text: "Приложить сопроводительные документы", done: false },
-    { id: 3, text: "Согласовать с руководителем", done: false },
-    { id: 4, text: "Отправить в бухгалтерию", done: false },
-  ]},
-  { id: 2, title: "Проверка сервера", template: true, items: [
-    { id: 1, text: "Проверить дисковое пространство", done: true },
-    { id: 2, text: "Обновить антивирусные базы", done: true },
-    { id: 3, text: "Проверить журналы ошибок", done: false },
-    { id: 4, text: "Создать резервную копию", done: false },
-    { id: 5, text: "Проверить сетевые настройки", done: false },
-  ]},
+interface CheckQuestion {
+  id: number;
+  text: string;
+  requirement: string;
+  hint: string;
+}
+
+interface ChecklistData {
+  id: number;
+  title: string;
+  questions: CheckQuestion[];
+}
+
+interface Area {
+  id: number;
+  title: string;
+  checklists: ChecklistData[];
+}
+
+interface Sphere {
+  id: number;
+  title: string;
+  icon: string;
+  color: string;
+  areas: Area[];
+}
+
+const INITIAL_SPHERES: Sphere[] = [
+  {
+    id: 1, title: "Промышленная безопасность", icon: "Factory", color: "#f97316",
+    areas: [
+      {
+        id: 1, title: "Магистральные трубопроводы", checklists: [
+          {
+            id: 1, title: "Проверка технического состояния", questions: [
+              { id: 1, text: "Проведено ли плановое техническое обслуживание трубопровода в установленные сроки?", requirement: "Федеральные нормы и правила в области промышленной безопасности «Правила безопасности для объектов, использующих сжиженные углеводородные газы» (Приказ Ростехнадзора № 521)", hint: "Проверьте журнал технического обслуживания — запись должна быть не старше 30 дней." },
+              { id: 2, text: "Наличие и исправность запорной арматуры на всех узлах трубопровода?", requirement: "ГОСТ 32569-2013. Трубопроводы технологические. Требования к устройству и эксплуатации.", hint: "Осмотрите каждый кран и задвижку — отсутствие течей, свободное открытие/закрытие." },
+              { id: 3, text: "Проведена ли проверка катодной защиты в текущем квартале?", requirement: "ГОСТ Р 51164-98. Трубопроводы стальные магистральные. Защита от коррозии.", hint: "Акт измерения потенциала трубопровода должен быть в наличии." },
+              { id: 4, text: "Установлены ли знаки и предупредительные таблички на трассе трубопровода?", requirement: "РД 39-132-94 «Правила по эксплуатации, ревизии, ремонту и отбраковке нефтепромысловых трубопроводов»", hint: "Знаки устанавливаются через каждые 500 м, у пересечений дорог и водоёмов." },
+              { id: 5, text: "Проведён ли инструктаж персонала, обслуживающего трубопровод?", requirement: "ФЗ №116 «О промышленной безопасности опасных производственных объектов»", hint: "Отметка о проведении инструктажа — в журнале инструктажей по ОТ." },
+            ]
+          }
+        ]
+      },
+      {
+        id: 2, title: "Сосуды под давлением", checklists: [
+          {
+            id: 2, title: "Плановая проверка сосудов", questions: [
+              { id: 1, text: "Имеется ли паспорт сосуда с актуальными записями о техническом освидетельствовании?", requirement: "ФНП «Правила промышленной безопасности при использовании оборудования, работающего под избыточным давлением» (Приказ Ростехнадзора № 536)", hint: "Паспорт должен храниться у ответственного за безопасную эксплуатацию." },
+              { id: 2, text: "Не превышен ли допустимый срок до следующего технического освидетельствования?", requirement: "Приказ Ростехнадзора № 536, п. 401 — наружный осмотр 1 раз в 2 года, гидравлические испытания — 1 раз в 8 лет.", hint: "Дата следующего освидетельствования указана в паспорте сосуда." },
+              { id: 3, text: "Исправны ли предохранительные клапаны и манометры?", requirement: "ГОСТ 12.2.085-2002. Сосуды, работающие под давлением. Предохранительные клапаны.", hint: "Манометр — класс точности не ниже 2.5, пломба или клеймо с датой поверки." },
+            ]
+          }
+        ]
+      },
+      {
+        id: 3, title: "Подъёмные сооружения", checklists: [
+          {
+            id: 3, title: "Проверка грузоподъёмных механизмов", questions: [
+              { id: 1, text: "Проведено ли техническое освидетельствование крана в установленные сроки?", requirement: "ФНП «Правила безопасности опасных производственных объектов, на которых используются подъёмные сооружения» (Приказ Ростехнадзора № 461)", hint: "Частичное освидетельствование — 1 раз в год, полное — 1 раз в 3 года." },
+              { id: 2, text: "Наличие удостоверения у крановщика/стропальщика?", requirement: "Приказ Ростехнадзора № 461, п. 159 — требования к квалификации персонала.", hint: "Удостоверение должно быть действующим, с актуальной отметкой о проверке знаний." },
+            ]
+          }
+        ]
+      },
+    ]
+  },
+  {
+    id: 2, title: "Охрана труда", icon: "HardHat", color: "#eab308",
+    areas: [
+      {
+        id: 4, title: "Организация рабочих мест", checklists: [
+          {
+            id: 4, title: "Проверка рабочего места", questions: [
+              { id: 1, text: "Обеспечены ли работники средствами индивидуальной защиты?", requirement: "Приказ Минтруда России № 767н «Об утверждении Единых типовых норм выдачи СИЗ»", hint: "СИЗ выдаются по нормам, карточки учёта хранятся в отделе охраны труда." },
+              { id: 2, text: "Проведён ли специальная оценка условий труда (СОУТ)?", requirement: "Федеральный закон № 426-ФЗ «О специальной оценке условий труда»", hint: "СОУТ проводится не реже 1 раза в 5 лет. Карты СОУТ должны быть на рабочих местах." },
+              { id: 3, text: "Оформлены ли инструкции по охране труда по каждой профессии?", requirement: "Приказ Минтруда России № 772н «Об утверждении основных требований к порядку разработки инструкций по охране труда»", hint: "Инструкции пересматриваются не реже 1 раза в 5 лет или при изменении условий труда." },
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    id: 3, title: "Пожарная безопасность", icon: "Flame", color: "#ef4444",
+    areas: [
+      {
+        id: 5, title: "Первичные средства пожаротушения", checklists: [
+          {
+            id: 5, title: "Проверка огнетушителей", questions: [
+              { id: 1, text: "Проведена ли своевременная перезарядка огнетушителей?", requirement: "ППР в РФ (Постановление Правительства № 1479), п. 60 — проверка огнетушителей не реже 1 раза в год.", hint: "На огнетушителе должна быть бирка с датой последней проверки и перезарядки." },
+              { id: 2, text: "Установлены ли огнетушители на видных и доступных местах?", requirement: "СП 9.13130.2009. Техника пожарная. Огнетушители. Требования к эксплуатации.", hint: "Огнетушители вешаются на высоте не более 1.5 м от уровня пола, знаки — по ГОСТ 12.4.026." },
+              { id: 3, text: "Обозначены ли пути эвакуации и аварийные выходы?", requirement: "ГОСТ 12.2.143-2009. Системы фотолюминесцентные эвакуационные.", hint: "Знаки на путях эвакуации должны быть освещены или фотолюминесцентными." },
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    id: 4, title: "Экологическая безопасность", icon: "Leaf", color: "#22c55e",
+    areas: [
+      {
+        id: 6, title: "Обращение с отходами", checklists: [
+          {
+            id: 6, title: "Учёт и хранение отходов", questions: [
+              { id: 1, text: "Ведётся ли журнал учёта отходов производства и потребления?", requirement: "Федеральный закон № 89-ФЗ «Об отходах производства и потребления», Приказ Минприроды № 1028", hint: "Журнал заполняется ежеквартально. Форма утверждена Приказом Минприроды № 1028." },
+              { id: 2, text: "Заключён ли договор со специализированной организацией на вывоз отходов?", requirement: "ФЗ № 89-ФЗ, ст. 13 — требования к обращению с отходами.", hint: "Договор и лицензия исполнителя должны храниться в отделе экологии." },
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    id: 5, title: "Транспортная безопасность", icon: "Truck", color: "#3b82f6",
+    areas: [
+      {
+        id: 7, title: "Транспортные средства", checklists: [
+          {
+            id: 7, title: "Техническое состояние ТС", questions: [
+              { id: 1, text: "Пройден ли технический осмотр транспортного средства?", requirement: "Федеральный закон № 170-ФЗ «О техническом осмотре транспортных средств»", hint: "Диагностическая карта должна быть действующей. Срок ТО зависит от категории ТС." },
+              { id: 2, text: "Проведён ли предрейсовый медицинский осмотр водителя?", requirement: "Приказ Минздрава России № 834н «О медицинских осмотрах водителей»", hint: "Отметка о прохождении медосмотра — в путевом листе." },
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    id: 6, title: "Санитарно-эпидемиологическая безопасность", icon: "Stethoscope", color: "#a78bfa",
+    areas: [
+      {
+        id: 8, title: "Производственный контроль", checklists: [
+          {
+            id: 8, title: "Санитарный контроль объекта", questions: [
+              { id: 1, text: "Разработана ли программа производственного контроля?", requirement: "Федеральный закон № 52-ФЗ «О санитарно-эпидемиологическом благополучии населения», ст. 32", hint: "Программа ПК разрабатывается юридическим лицом самостоятельно и согласуется с Роспотребнадзором." },
+              { id: 2, text: "Проведены ли лабораторные исследования в рамках ПК?", requirement: "СП 1.1.1058-01. Организация и проведение производственного контроля.", hint: "Протоколы испытаний должны быть в наличии за текущий период." },
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    id: 7, title: "Антитеррористическая защищённость", icon: "ShieldAlert", color: "#ec4899",
+    areas: [
+      {
+        id: 9, title: "Система охраны объекта", checklists: [
+          {
+            id: 9, title: "Проверка антитеррористической защищённости", questions: [
+              { id: 1, text: "Разработан ли паспорт безопасности объекта?", requirement: "Постановление Правительства РФ № 1995 «Об утверждении требований к антитеррористической защищённости объектов»", hint: "Паспорт безопасности разрабатывается и согласуется с Росгвардией и ФСБ." },
+              { id: 2, text: "Проведён ли инструктаж персонала по действиям при угрозе теракта?", requirement: "Постановление Правительства РФ № 1438, раздел о подготовке персонала.", hint: "Инструктаж проводится не реже 1 раза в год, записи — в журнале инструктажей." },
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    id: 8, title: "Бухгалтерское дело", icon: "Calculator", color: "#f59e0b",
+    areas: [
+      {
+        id: 10, title: "Первичная документация", checklists: [
+          {
+            id: 10, title: "Проверка первичных документов", questions: [
+              { id: 1, text: "Все ли первичные документы оформлены по установленным формам?", requirement: "Федеральный закон № 402-ФЗ «О бухгалтерском учёте», ст. 9 — требования к первичным документам.", hint: "Обязательные реквизиты: наименование, дата, организация, содержание, подписи." },
+              { id: 2, text: "Соблюдаются ли сроки сдачи первичных документов в бухгалтерию?", requirement: "Учётная политика организации — график документооборота.", hint: "График документооборота утверждается приказом руководителя." },
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    id: 9, title: "Информационная безопасность", icon: "Lock", color: "#06b6d4",
+    areas: [
+      {
+        id: 11, title: "Защита персональных данных", checklists: [
+          {
+            id: 11, title: "Проверка защиты ПД", questions: [
+              { id: 1, text: "Назначен ли ответственный за обработку персональных данных?", requirement: "Федеральный закон № 152-ФЗ «О персональных данных», ст. 22.1", hint: "Приказ о назначении ответственного должен быть в наличии." },
+              { id: 2, text: "Получены ли согласия субъектов ПД на их обработку?", requirement: "ФЗ № 152-ФЗ, ст. 9 — требования к согласию субъекта ПД.", hint: "Форма согласия должна содержать все обязательные элементы по ст. 9 ФЗ-152." },
+              { id: 3, text: "Проведена ли оценка уровня защищённости информационной системы ПД?", requirement: "Постановление Правительства РФ № 1119, ФЗ № 152-ФЗ", hint: "Акт классификации ИСПДн и технический паспорт должны быть в наличии." },
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    id: 10, title: "Иное", icon: "MoreHorizontal", color: "#64748b",
+    areas: []
+  },
 ];
 
+type ViewMode = "spheres" | "areas" | "checklists" | "survey" | "admin";
+
+interface QuestionState {
+  answer: AnswerValue;
+  note: string;
+  photos: string[];
+}
+
 export default function ChecklistModule({ onBack }: Props) {
-  const [lists, setLists] = useState<Checklist[]>(TEMPLATES);
-  const [selectedId, setSelectedId] = useState<number | null>(1);
-  const [creating, setCreating] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
-  const [newItem, setNewItem] = useState("");
+  const [view, setView] = useState<ViewMode>("spheres");
+  const [spheres, setSpheres] = useState<Sphere[]>(INITIAL_SPHERES);
+  const [selectedSphere, setSelectedSphere] = useState<Sphere | null>(null);
+  const [selectedArea, setSelectedArea] = useState<Area | null>(null);
+  const [selectedChecklist, setSelectedChecklist] = useState<ChecklistData | null>(null);
+  const [questionStates, setQuestionStates] = useState<Record<number, QuestionState>>({});
+  const [activeModal, setActiveModal] = useState<{ type: "req" | "hint" | "note" | "photo" | "result"; qId?: number } | null>(null);
+  const [noteInput, setNoteInput] = useState("");
+  const [currentQIndex, setCurrentQIndex] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const selected = lists.find(l => l.id === selectedId);
+  // Admin state
+  const [adminView, setAdminView] = useState<"main" | "add-sphere" | "add-area" | "add-checklist">("main");
+  const [adminSphereId, setAdminSphereId] = useState<number | null>(null);
+  const [adminAreaId, setAdminAreaId] = useState<number | null>(null);
+  const [newSphereTitle, setNewSphereTitle] = useState("");
+  const [newAreaTitle, setNewAreaTitle] = useState("");
+  const [newChecklistTitle, setNewChecklistTitle] = useState("");
 
-  const toggleItem = (listId: number, itemId: number) => {
-    setLists(prev => prev.map(l => l.id !== listId ? l : {
-      ...l,
-      items: l.items.map(it => it.id === itemId ? { ...it, done: !it.done } : it)
+  const getQState = (qId: number): QuestionState =>
+    questionStates[qId] || { answer: null, note: "", photos: [] };
+
+  const setAnswer = (qId: number, val: AnswerValue) => {
+    setQuestionStates(prev => ({ ...prev, [qId]: { ...getQState(qId), answer: val } }));
+  };
+
+  const saveNote = (qId: number, text: string) => {
+    setQuestionStates(prev => ({ ...prev, [qId]: { ...getQState(qId), note: text } }));
+  };
+
+  const addPhoto = (qId: number, url: string) => {
+    setQuestionStates(prev => {
+      const cur = getQState(qId);
+      return { ...prev, [qId]: { ...cur, photos: [...cur.photos, url] } };
+    });
+  };
+
+  const openSurvey = (cl: ChecklistData) => {
+    setSelectedChecklist(cl);
+    setCurrentQIndex(0);
+    setQuestionStates({});
+    setView("survey");
+  };
+
+  const answered = selectedChecklist ? selectedChecklist.questions.filter(q => getQState(q.id).answer !== null).length : 0;
+  const total = selectedChecklist?.questions.length || 0;
+  const progress = total > 0 ? Math.round((answered / total) * 100) : 0;
+
+  const currentQ = selectedChecklist?.questions[currentQIndex];
+
+  // Admin helpers
+  const addSphere = () => {
+    if (!newSphereTitle.trim()) return;
+    setSpheres(prev => [...prev, { id: Date.now(), title: newSphereTitle, icon: "MoreHorizontal", color: "#64748b", areas: [] }]);
+    setNewSphereTitle("");
+    setAdminView("main");
+  };
+
+  const addArea = () => {
+    if (!newAreaTitle.trim() || !adminSphereId) return;
+    setSpheres(prev => prev.map(s => s.id !== adminSphereId ? s : { ...s, areas: [...s.areas, { id: Date.now(), title: newAreaTitle, checklists: [] }] }));
+    setNewAreaTitle("");
+    setAdminView("main");
+  };
+
+  const addChecklist = () => {
+    if (!newChecklistTitle.trim() || !adminSphereId || !adminAreaId) return;
+    setSpheres(prev => prev.map(s => s.id !== adminSphereId ? s : {
+      ...s,
+      areas: s.areas.map(a => a.id !== adminAreaId ? a : {
+        ...a, checklists: [...a.checklists, { id: Date.now(), title: newChecklistTitle, questions: [] }]
+      })
     }));
+    setNewChecklistTitle("");
+    setAdminView("main");
   };
 
-  const addItem = () => {
-    if (!newItem.trim() || !selectedId) return;
-    setLists(prev => prev.map(l => l.id !== selectedId ? l : {
-      ...l,
-      items: [...l.items, { id: Date.now(), text: newItem, done: false }]
-    }));
-    setNewItem("");
-  };
+  // ── ADMIN VIEW ──────────────────────────────────────────────────────────────
+  if (view === "admin") {
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        <ModuleHeader title="Администрирование чек-листов" onBack={() => setView("spheres")} icon="Settings" iconColor="#06b6d4" />
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
+          {adminView === "main" && (
+            <>
+              {/* Upload Excel */}
+              <div className="glass-strong rounded-2xl p-5 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(16,185,129,0.2)' }}>
+                    <Icon name="FileSpreadsheet" size={20} color="#10b981" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">Загрузить чек-листы из Excel</p>
+                    <p className="text-xs text-white/40">Формат: .xlsx, .xls</p>
+                  </div>
+                </div>
+                <div
+                  className="border-2 border-dashed border-white/15 rounded-xl p-6 flex flex-col items-center gap-2 cursor-pointer hover:border-cyan-500/50 transition-colors"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Icon name="Upload" size={28} color="rgba(255,255,255,0.3)" />
+                  <p className="text-sm text-white/50 text-center">Нажмите для выбора файла<br /><span className="text-xs">или перетащите сюда</span></p>
+                  <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" />
+                </div>
+                <p className="text-xs text-white/30 mt-3 text-center">Файл должен содержать листы: Вопросы, Требования, Подсказки</p>
+              </div>
 
-  const createList = () => {
-    if (!newTitle.trim()) return;
-    const newList: Checklist = { id: Date.now(), title: newTitle, items: [] };
-    setLists(prev => [...prev, newList]);
-    setSelectedId(newList.id);
-    setNewTitle("");
-    setCreating(false);
-  };
+              {/* Spheres list */}
+              <div className="animate-fade-up opacity-0 delay-100" style={{ animationFillMode: 'forwards' }}>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">Сферы деятельности ({spheres.length})</p>
+                  <button onClick={() => setAdminView("add-sphere")} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-cyan-400 transition-colors" style={{ background: 'rgba(6,182,212,0.15)', border: '1px solid rgba(6,182,212,0.3)' }}>
+                    <Icon name="Plus" size={13} color="#06b6d4" />Добавить сферу
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {spheres.map(s => (
+                    <div key={s.id} className="glass rounded-2xl overflow-hidden">
+                      <div className="flex items-center gap-3 px-4 py-3">
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${s.color}20` }}>
+                          <Icon name={s.icon} size={16} color={s.color} />
+                        </div>
+                        <span className="text-sm font-medium text-white flex-1">{s.title}</span>
+                        <span className="text-xs text-white/30">{s.areas.length} областей</span>
+                        <button
+                          onClick={() => { setAdminSphereId(s.id); setAdminView("add-area"); }}
+                          className="p-1.5 rounded-lg hover:bg-white/10 transition-colors ml-1"
+                        >
+                          <Icon name="Plus" size={14} color="rgba(255,255,255,0.5)" />
+                        </button>
+                      </div>
+                      {s.areas.length > 0 && (
+                        <div className="border-t border-white/5 px-4 py-2 space-y-1">
+                          {s.areas.map(a => (
+                            <div key={a.id} className="flex items-center gap-2 py-1.5">
+                              <Icon name="ChevronRight" size={12} color="rgba(255,255,255,0.25)" />
+                              <span className="text-xs text-white/60 flex-1">{a.title}</span>
+                              <span className="text-xs text-white/25">{a.checklists.length} чек-листов</span>
+                              <button
+                                onClick={() => { setAdminSphereId(s.id); setAdminAreaId(a.id); setAdminView("add-checklist"); }}
+                                className="p-1 rounded-lg hover:bg-white/10 transition-colors"
+                              >
+                                <Icon name="Plus" size={13} color="rgba(255,255,255,0.4)" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
 
-  const getProgress = (list: Checklist) => {
-    if (!list.items.length) return 0;
-    return Math.round((list.items.filter(i => i.done).length / list.items.length) * 100);
-  };
+          {adminView === "add-sphere" && (
+            <div className="glass-strong rounded-2xl p-5 animate-scale-in space-y-4">
+              <h3 className="text-base font-bold text-white">Новая сфера деятельности</h3>
+              <input className="input-field" placeholder="Название сферы..." value={newSphereTitle} onChange={e => setNewSphereTitle(e.target.value)} autoFocus />
+              <div className="flex gap-3">
+                <button onClick={() => setAdminView("main")} className="btn-ghost flex-1 text-sm">Отмена</button>
+                <button onClick={addSphere} className="btn-primary flex-1 text-sm flex items-center justify-center gap-1"><Icon name="Plus" size={15} />Создать</button>
+              </div>
+            </div>
+          )}
 
-  return (
-    <div className="min-h-screen relative z-10 animate-fade-in">
-      <ModuleHeader title="Чек-листы" onBack={onBack} icon="CheckSquare" iconColor="#06b6d4" />
-      <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
-        {/* List selector */}
-        <div className="flex gap-2 overflow-x-auto pb-1 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
-          {lists.map(l => {
-            const prog = getProgress(l);
-            return (
-              <button key={l.id} onClick={() => setSelectedId(l.id)} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${selectedId === l.id ? "text-white" : "text-white/50 hover:text-white/80"}`} style={{ background: selectedId === l.id ? 'linear-gradient(135deg, #06b6d4, #0891b2)' : 'rgba(255,255,255,0.06)', border: `1px solid ${selectedId === l.id ? 'rgba(6,182,212,0.5)' : 'rgba(255,255,255,0.1)'}` }}>
-                {l.title}
-                {l.template && <span className="text-xs opacity-60">шаблон</span>}
-                <span className="text-xs opacity-70 ml-1">{prog}%</span>
+          {adminView === "add-area" && (
+            <div className="glass-strong rounded-2xl p-5 animate-scale-in space-y-4">
+              <h3 className="text-base font-bold text-white">Новая область</h3>
+              <p className="text-xs text-white/40">Сфера: {spheres.find(s => s.id === adminSphereId)?.title}</p>
+              <input className="input-field" placeholder="Название области..." value={newAreaTitle} onChange={e => setNewAreaTitle(e.target.value)} autoFocus />
+              <div className="flex gap-3">
+                <button onClick={() => setAdminView("main")} className="btn-ghost flex-1 text-sm">Отмена</button>
+                <button onClick={addArea} className="btn-primary flex-1 text-sm flex items-center justify-center gap-1"><Icon name="Plus" size={15} />Создать</button>
+              </div>
+            </div>
+          )}
+
+          {adminView === "add-checklist" && (
+            <div className="glass-strong rounded-2xl p-5 animate-scale-in space-y-4">
+              <h3 className="text-base font-bold text-white">Новый чек-лист</h3>
+              <p className="text-xs text-white/40">
+                {spheres.find(s => s.id === adminSphereId)?.title} → {spheres.find(s => s.id === adminSphereId)?.areas.find(a => a.id === adminAreaId)?.title}
+              </p>
+              <input className="input-field" placeholder="Название чек-листа..." value={newChecklistTitle} onChange={e => setNewChecklistTitle(e.target.value)} autoFocus />
+              <div className="glass rounded-2xl p-3 flex items-center gap-3 cursor-pointer hover:bg-white/5 transition-colors" onClick={() => fileInputRef.current?.click()}>
+                <Icon name="FileSpreadsheet" size={18} color="#10b981" />
+                <span className="text-sm text-white/60">Загрузить вопросы из Excel</span>
+                <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" />
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setAdminView("main")} className="btn-ghost flex-1 text-sm">Отмена</button>
+                <button onClick={addChecklist} className="btn-primary flex-1 text-sm flex items-center justify-center gap-1"><Icon name="Plus" size={15} />Создать</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── SURVEY VIEW ─────────────────────────────────────────────────────────────
+  if (view === "survey" && selectedChecklist && currentQ) {
+    const qState = getQState(currentQ.id);
+    const isLast = currentQIndex === selectedChecklist.questions.length - 1;
+
+    const goNext = () => {
+      if (isLast) {
+        setActiveModal({ type: "result" });
+      } else {
+        setCurrentQIndex(i => i + 1);
+      }
+    };
+
+    const goPrev = () => {
+      if (currentQIndex > 0) setCurrentQIndex(i => i - 1);
+    };
+
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in flex flex-col">
+        {/* Modal overlay */}
+        {activeModal && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }} onClick={() => setActiveModal(null)}>
+            <div className="w-full max-w-2xl animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }} onClick={e => e.stopPropagation()}>
+              <div className="glass-strong rounded-t-3xl p-6 max-h-[80vh] overflow-y-auto">
+                {activeModal.type === "req" && (
+                  <>
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.2)' }}><Icon name="BookOpen" size={16} color="#ef4444" /></div>
+                      <h3 className="text-base font-bold text-white">Нормативное требование</h3>
+                    </div>
+                    <p className="text-sm text-white/70 leading-relaxed">{currentQ.requirement}</p>
+                  </>
+                )}
+                {activeModal.type === "hint" && (
+                  <>
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(245,158,11,0.2)' }}><Icon name="Lightbulb" size={16} color="#f59e0b" /></div>
+                      <h3 className="text-base font-bold text-white">Подсказка</h3>
+                    </div>
+                    <p className="text-sm text-white/70 leading-relaxed">{currentQ.hint}</p>
+                  </>
+                )}
+                {activeModal.type === "note" && activeModal.qId !== undefined && (
+                  <>
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(6,182,212,0.2)' }}><Icon name="StickyNote" size={16} color="#06b6d4" /></div>
+                      <h3 className="text-base font-bold text-white">Примечание</h3>
+                    </div>
+                    <textarea
+                      className="input-field resize-none mb-4"
+                      rows={4}
+                      placeholder="Введите примечание к данному вопросу..."
+                      defaultValue={getQState(activeModal.qId).note}
+                      onChange={e => setNoteInput(e.target.value)}
+                      onFocus={() => setNoteInput(getQState(activeModal.qId!).note)}
+                    />
+                    <button className="btn-primary text-sm py-3 flex items-center justify-center gap-2" onClick={() => {
+                      saveNote(activeModal.qId!, noteInput || getQState(activeModal.qId!).note);
+                      setActiveModal(null);
+                    }}>
+                      <Icon name="Check" size={16} />Сохранить примечание
+                    </button>
+                  </>
+                )}
+                {activeModal.type === "photo" && activeModal.qId !== undefined && (
+                  <>
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.2)' }}><Icon name="Camera" size={16} color="#8b5cf6" /></div>
+                      <h3 className="text-base font-bold text-white">Фотоотчёт</h3>
+                    </div>
+                    {getQState(activeModal.qId).photos.length > 0 && (
+                      <div className="grid grid-cols-3 gap-2 mb-4">
+                        {getQState(activeModal.qId).photos.map((p, i) => (
+                          <div key={i} className="aspect-square rounded-xl flex items-center justify-center text-xs text-white/40" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)' }}>
+                            <Icon name="ImageIcon" size={20} color="rgba(139,92,246,0.6)" />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <button className="flex flex-col items-center gap-2 py-5 rounded-2xl transition-colors hover:bg-white/10" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+                        onClick={() => { addPhoto(activeModal.qId!, `photo_${Date.now()}`); }}>
+                        <Icon name="Camera" size={24} color="rgba(255,255,255,0.6)" />
+                        <span className="text-xs text-white/60">Сфотографировать</span>
+                      </button>
+                      <button className="flex flex-col items-center gap-2 py-5 rounded-2xl transition-colors hover:bg-white/10" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+                        onClick={() => { addPhoto(activeModal.qId!, `file_${Date.now()}`); }}>
+                        <Icon name="Upload" size={24} color="rgba(255,255,255,0.6)" />
+                        <span className="text-xs text-white/60">Загрузить файл</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+                {activeModal.type === "result" && (
+                  <>
+                    <div className="text-center mb-6">
+                      <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-3 glow" style={{ background: 'linear-gradient(135deg, #06b6d4, #0891b2)' }}>
+                        <Icon name="CheckCircle" size={32} color="white" />
+                      </div>
+                      <h3 className="text-xl font-bold text-white mb-1">Чек-лист завершён</h3>
+                      <p className="text-white/50 text-sm">{selectedChecklist.title}</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 mb-6">
+                      {(["yes", "no", "na"] as AnswerValue[]).map(v => {
+                        const count = selectedChecklist.questions.filter(q => getQState(q.id).answer === v).length;
+                        const labels = { yes: "Да", no: "Нет", na: "Не требуется" };
+                        const colors = { yes: "#22c55e", no: "#ef4444", na: "#f59e0b" };
+                        return (
+                          <div key={v!} className="text-center py-4 rounded-xl" style={{ background: `${colors[v!]}15`, border: `1px solid ${colors[v!]}30` }}>
+                            <div className="text-2xl font-bold" style={{ color: colors[v!] }}>{count}</div>
+                            <div className="text-xs mt-1" style={{ color: colors[v!] }}>{labels[v!]}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex gap-3">
+                      <button className="btn-ghost flex-1 text-sm flex items-center justify-center gap-2" onClick={() => setActiveModal(null)}>
+                        <Icon name="ArrowLeft" size={15} />Вернуться
+                      </button>
+                      <button className="btn-primary flex-1 text-sm flex items-center justify-center gap-2">
+                        <Icon name="Download" size={15} />Экспорт PDF
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Survey Header */}
+        <div className="glass border-b border-white/10 px-4 py-4 sticky top-0 z-20">
+          <div className="max-w-2xl mx-auto">
+            <div className="flex items-center gap-3 mb-3">
+              <button onClick={() => { setView("checklists"); setSelectedChecklist(null); }} className="p-2 rounded-xl hover:bg-white/10 transition-colors">
+                <Icon name="ArrowLeft" size={20} color="white" />
               </button>
-            );
-          })}
-          <button onClick={() => setCreating(true)} className="flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-medium text-white/50 hover:text-white/80 transition-all flex items-center gap-1.5" style={{ background: 'rgba(255,255,255,0.05)', border: '1px dashed rgba(255,255,255,0.2)' }}>
-            <Icon name="Plus" size={14} />Новый
-          </button>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-white/40 truncate">{selectedArea?.title}</p>
+                <p className="text-sm font-semibold text-white truncate">{selectedChecklist.title}</p>
+              </div>
+              <span className="text-sm font-bold text-cyan-400 flex-shrink-0">{currentQIndex + 1}/{total}</span>
+            </div>
+            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${progress}%`, background: 'linear-gradient(90deg, #06b6d4, #3b82f6)' }} />
+            </div>
+          </div>
         </div>
 
-        {creating && (
-          <div className="glass rounded-2xl p-4 animate-scale-in space-y-3">
-            <input className="input-field" placeholder="Название чек-листа..." value={newTitle} onChange={e => setNewTitle(e.target.value)} onKeyDown={e => e.key === "Enter" && createList()} autoFocus />
-            <div className="flex gap-2">
-              <button onClick={() => setCreating(false)} className="btn-ghost flex-1 text-sm">Отмена</button>
-              <button onClick={createList} className="btn-primary flex-1 text-sm flex items-center justify-center gap-1"><Icon name="Plus" size={15} />Создать</button>
+        {/* Question */}
+        <div className="flex-1 max-w-2xl mx-auto w-full px-4 pt-5 pb-8 flex flex-col gap-4">
+          <div className="glass-strong rounded-2xl p-5 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: 'rgba(6,182,212,0.2)' }}>
+                <span className="text-xs font-bold text-cyan-400">{currentQIndex + 1}</span>
+              </div>
+              <p className="text-sm font-medium text-white leading-relaxed">{currentQ.text}</p>
+            </div>
+
+            {/* Action buttons */}
+            <div className="grid grid-cols-4 gap-2 mb-5">
+              {[
+                { type: "req", label: "Требования", icon: "BookOpen", color: "#ef4444" },
+                { type: "hint", label: "Подсказка", icon: "Lightbulb", color: "#f59e0b" },
+                { type: "note", label: "Примечание", icon: "StickyNote", color: "#06b6d4" },
+                { type: "photo", label: "Фото", icon: "Camera", color: "#8b5cf6" },
+              ].map(btn => {
+                const hasNote = btn.type === "note" && qState.note;
+                const hasPhoto = btn.type === "photo" && qState.photos.length > 0;
+                return (
+                  <button
+                    key={btn.type}
+                    onClick={() => setActiveModal({ type: btn.type as "req" | "hint" | "note" | "photo", qId: currentQ.id })}
+                    className="flex flex-col items-center gap-1.5 py-3 rounded-xl transition-all hover:scale-105 relative"
+                    style={{ background: `${btn.color}12`, border: `1px solid ${btn.color}25` }}
+                  >
+                    <Icon name={btn.icon} size={18} color={btn.color} />
+                    <span className="text-xs leading-none" style={{ color: btn.color }}>{btn.label}</span>
+                    {(hasNote || hasPhoto) && (
+                      <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full" style={{ background: btn.color }} />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Answer buttons */}
+            <div className="grid grid-cols-3 gap-3">
+              {([
+                { val: "yes", label: "Да", icon: "Check", color: "#22c55e", bg: "rgba(34,197,94," },
+                { val: "no", label: "Нет", icon: "X", color: "#ef4444", bg: "rgba(239,68,68," },
+                { val: "na", label: "Не требуется", icon: "Minus", color: "#f59e0b", bg: "rgba(245,158,11," },
+              ] as const).map(opt => {
+                const active = qState.answer === opt.val;
+                return (
+                  <button
+                    key={opt.val}
+                    onClick={() => setAnswer(currentQ.id, opt.val)}
+                    className="flex flex-col items-center gap-2 py-4 rounded-2xl transition-all"
+                    style={{
+                      background: active ? `${opt.bg}0.2)` : 'rgba(255,255,255,0.04)',
+                      border: `2px solid ${active ? opt.color : 'rgba(255,255,255,0.08)'}`,
+                      transform: active ? 'scale(1.03)' : 'scale(1)',
+                      boxShadow: active ? `0 0 20px ${opt.bg}0.3)` : 'none',
+                    }}
+                  >
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: active ? `${opt.bg}0.25)` : 'rgba(255,255,255,0.06)' }}>
+                      <Icon name={opt.icon} size={18} color={active ? opt.color : "rgba(255,255,255,0.4)"} />
+                    </div>
+                    <span className="text-xs font-semibold leading-tight text-center" style={{ color: active ? opt.color : "rgba(255,255,255,0.5)" }}>
+                      {opt.label}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
-        )}
 
-        {selected && (
-          <div className="animate-fade-up opacity-0 delay-100" style={{ animationFillMode: 'forwards' }}>
-            {/* Progress */}
-            <div className="glass rounded-2xl p-4 mb-4">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-semibold text-white">{selected.title}</h2>
-                <span className="text-2xl font-bold text-cyan-400">{getProgress(selected)}%</span>
-              </div>
-              <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${getProgress(selected)}%`, background: 'linear-gradient(90deg, #06b6d4, #0ea5e9)' }} />
-              </div>
-              <div className="flex justify-between mt-2 text-xs text-white/40">
-                <span>{selected.items.filter(i => i.done).length} выполнено</span>
-                <span>{selected.items.filter(i => !i.done).length} осталось</span>
-              </div>
+          {/* Note preview */}
+          {qState.note && (
+            <div className="flex items-start gap-2 px-4 py-3 rounded-xl animate-fade-in" style={{ background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.2)' }}>
+              <Icon name="StickyNote" size={14} color="#06b6d4" className="flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-cyan-300/80">{qState.note}</p>
             </div>
+          )}
 
-            {/* Items */}
-            <div className="space-y-2 mb-4">
-              {selected.items.map(item => (
-                <button key={item.id} onClick={() => toggleItem(selected.id, item.id)} className="w-full flex items-center gap-3 p-4 rounded-2xl text-left transition-all hover:bg-white/5" style={{ background: item.done ? 'rgba(6,182,212,0.08)' : 'rgba(255,255,255,0.04)', border: `1px solid ${item.done ? 'rgba(6,182,212,0.25)' : 'rgba(255,255,255,0.08)'}` }}>
-                  <div className={`w-5 h-5 rounded-md flex-shrink-0 flex items-center justify-center transition-all ${item.done ? "glow-sm" : "border border-white/25"}`} style={{ background: item.done ? 'linear-gradient(135deg, #06b6d4, #0891b2)' : 'transparent' }}>
-                    {item.done && <Icon name="Check" size={12} color="white" />}
-                  </div>
-                  <span className={`text-sm flex-1 transition-all ${item.done ? "text-white/40 line-through" : "text-white/80"}`}>{item.text}</span>
-                </button>
-              ))}
+          {/* Photos preview */}
+          {qState.photos.length > 0 && (
+            <div className="flex items-center gap-2 px-4 py-3 rounded-xl animate-fade-in" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
+              <Icon name="ImageIcon" size={14} color="#8b5cf6" />
+              <p className="text-xs text-purple-300/80">{qState.photos.length} фото прикреплено</p>
             </div>
+          )}
 
-            {/* Add item */}
-            <div className="flex gap-2">
-              <input className="input-field text-sm py-3 flex-1" placeholder="Добавить пункт..." value={newItem} onChange={e => setNewItem(e.target.value)} onKeyDown={e => e.key === "Enter" && addItem()} />
-              <button onClick={addItem} className="p-3 rounded-xl flex-shrink-0" style={{ background: 'rgba(6,182,212,0.25)', border: '1px solid rgba(6,182,212,0.3)' }}>
-                <Icon name="Plus" size={18} color="#06b6d4" />
-              </button>
-            </div>
-
-            <button className="w-full mt-3 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium text-white/60 hover:text-white transition-colors hover:bg-white/10 border border-white/10">
-              <Icon name="Download" size={15} />Экспорт в PDF
+          {/* Navigation */}
+          <div className="flex gap-3 mt-auto">
+            <button onClick={goPrev} disabled={currentQIndex === 0} className="btn-ghost flex-shrink-0 px-5 flex items-center gap-2 disabled:opacity-30">
+              <Icon name="ArrowLeft" size={16} />Назад
+            </button>
+            <button
+              onClick={goNext}
+              disabled={qState.answer === null}
+              className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-40"
+            >
+              {isLast ? <><Icon name="CheckCircle" size={18} />Завершить</> : <><Icon name="ArrowRight" size={18} />Далее</>}
             </button>
           </div>
-        )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── CHECKLISTS VIEW ──────────────────────────────────────────────────────────
+  if (view === "checklists" && selectedArea) {
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        <ModuleHeader title={selectedArea.title} onBack={() => setView("areas")} subtitle={selectedSphere?.title} icon="ClipboardList" iconColor="#06b6d4" />
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
+          {selectedArea.checklists.length === 0 ? (
+            <div className="text-center py-16 text-white/30">
+              <Icon name="ClipboardList" size={36} color="rgba(255,255,255,0.15)" className="mx-auto mb-3" />
+              <p className="text-sm">Чек-листы не добавлены</p>
+              <p className="text-xs mt-1">Администратор добавит их через панель управления</p>
+            </div>
+          ) : (
+            selectedArea.checklists.map((cl, i) => (
+              <button
+                key={cl.id}
+                onClick={() => openSurvey(cl)}
+                className={`w-full text-left card-module animate-fade-up opacity-0`}
+                style={{ animationDelay: `${i * 0.06}s`, animationFillMode: 'forwards' }}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(6,182,212,0.15)', border: '1px solid rgba(6,182,212,0.25)' }}>
+                    <Icon name="ClipboardCheck" size={20} color="#06b6d4" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-white">{cl.title}</p>
+                    <p className="text-xs text-white/40 mt-0.5">{cl.questions.length} вопросов</p>
+                  </div>
+                  <Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.25)" />
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── AREAS VIEW ───────────────────────────────────────────────────────────────
+  if (view === "areas" && selectedSphere) {
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        <ModuleHeader
+          title={selectedSphere.title}
+          onBack={() => setView("spheres")}
+          icon={selectedSphere.icon}
+          iconColor={selectedSphere.color}
+          subtitle="Выберите область"
+        />
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
+          {selectedSphere.areas.length === 0 ? (
+            <div className="text-center py-16 text-white/30">
+              <Icon name="FolderOpen" size={36} color="rgba(255,255,255,0.15)" className="mx-auto mb-3" />
+              <p className="text-sm">Области не добавлены</p>
+            </div>
+          ) : (
+            selectedSphere.areas.map((area, i) => (
+              <button
+                key={area.id}
+                onClick={() => { setSelectedArea(area); setView("checklists"); }}
+                className={`w-full text-left card-module animate-fade-up opacity-0`}
+                style={{ animationDelay: `${i * 0.06}s`, animationFillMode: 'forwards' }}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${selectedSphere.color}15`, border: `1px solid ${selectedSphere.color}25` }}>
+                    <Icon name="Layers" size={20} color={selectedSphere.color} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-white">{area.title}</p>
+                    <p className="text-xs text-white/40 mt-0.5">{area.checklists.length} чек-листов</p>
+                  </div>
+                  <Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.25)" />
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── SPHERES LIST ──────────────────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen relative z-10 animate-fade-in">
+      <div className="glass border-b border-white/10 px-4 py-4 sticky top-0 z-20">
+        <div className="flex items-center justify-between max-w-2xl mx-auto">
+          <div className="flex items-center gap-3">
+            <button onClick={onBack} className="p-2 rounded-xl hover:bg-white/10 transition-colors">
+              <Icon name="ArrowLeft" size={20} color="white" />
+            </button>
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(6,182,212,0.2)', border: '1px solid rgba(6,182,212,0.3)' }}>
+              <Icon name="CheckSquare" size={18} color="#06b6d4" />
+            </div>
+            <div>
+              <h1 className="text-base font-bold text-white">Чек-листы</h1>
+              <p className="text-xs text-white/40">Выберите сферу деятельности</p>
+            </div>
+          </div>
+          <button
+            onClick={() => { setView("admin"); setAdminView("main"); }}
+            className="p-2 rounded-xl hover:bg-white/10 transition-colors"
+            title="Администрирование"
+          >
+            <Icon name="Settings" size={18} color="rgba(255,255,255,0.5)" />
+          </button>
+        </div>
+      </div>
+
+      <div className="max-w-2xl mx-auto px-4 pt-4 pb-8">
+        <div className="grid grid-cols-2 gap-3">
+          {spheres.map((sphere, i) => (
+            <button
+              key={sphere.id}
+              onClick={() => { setSelectedSphere(sphere); setView("areas"); }}
+              className={`card-module text-left animate-fade-up opacity-0`}
+              style={{ animationDelay: `${i * 0.05}s`, animationFillMode: 'forwards' }}
+            >
+              <div className="w-11 h-11 rounded-2xl flex items-center justify-center mb-3" style={{ background: `${sphere.color}15`, border: `1px solid ${sphere.color}25` }}>
+                <Icon name={sphere.icon} size={22} color={sphere.color} />
+              </div>
+              <p className="text-sm font-semibold text-white leading-snug mb-1">{sphere.title}</p>
+              <p className="text-xs" style={{ color: sphere.color + "99" }}>
+                {sphere.areas.length > 0
+                  ? `${sphere.areas.length} ${sphere.areas.length === 1 ? "область" : sphere.areas.length < 5 ? "области" : "областей"}`
+                  : "Нет областей"}
+              </p>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
