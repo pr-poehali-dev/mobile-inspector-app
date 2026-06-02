@@ -18,14 +18,63 @@ const QUESTIONS = [
 ];
 
 export default function LearningModule({ onBack }: Props) {
-  const [view, setView] = useState<"list" | "course" | "test" | "cert">("list");
+  const [view, setView] = useState<"list" | "course" | "lesson" | "test" | "cert">("list");
   const [selectedCourse, setSelectedCourse] = useState<typeof COURSES[0] | null>(null);
   const [testAnswers, setTestAnswers] = useState<Record<number, number>>({});
   const [testDone, setTestDone] = useState(false);
+  const [activeLessonIdx, setActiveLessonIdx] = useState(0);
+  const [toast, setToast] = useState<string | null>(null);
 
   const score = QUESTIONS.filter(q => testAnswers[q.id] === q.correct).length;
-
   const submitTest = () => setTestDone(true);
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+  const LESSON_TEXTS = [
+    "Охрана труда — система сохранения жизни и здоровья работников в процессе трудовой деятельности, включающая правовые, социально-экономические, организационно-технические меры.",
+    "Основные понятия: рабочее место, вредный фактор, опасный фактор, средства индивидуальной защиты (СИЗ), нормативные требования охраны труда.",
+    "На практике: каждый сотрудник обязан проходить инструктаж перед допуском к работе. Журнал инструктажей хранится у руководителя подразделения.",
+    "Контрольные вопросы и задания по пройденному материалу. Убедитесь, что усвоили все основные понятия перед прохождением итогового теста.",
+  ];
+
+  if (view === "lesson" && selectedCourse) {
+    const lessonName = activeLessonIdx === 0 ? "Введение в курс" : activeLessonIdx === 1 ? "Основные понятия" : activeLessonIdx === 2 ? "Практические примеры" : "Итоговые материалы";
+    const lessonText = LESSON_TEXTS[Math.min(activeLessonIdx, LESSON_TEXTS.length - 1)];
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        <ModuleHeader title={`Урок ${activeLessonIdx + 1}`} onBack={() => setView("course")} subtitle={selectedCourse.title} />
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
+          <div className="glass-strong rounded-2xl p-5 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
+            <h2 className="text-base font-bold text-white mb-3">{lessonName}</h2>
+            <p className="text-sm text-white/70 leading-relaxed">{lessonText}</p>
+          </div>
+          <div className="glass rounded-2xl p-4 animate-fade-up opacity-0 delay-100" style={{ animationFillMode: 'forwards' }}>
+            <p className="text-xs text-white/40 uppercase tracking-wider mb-3">Ключевые тезисы</p>
+            {["Изучите материал внимательно", "Сделайте заметки по ключевым моментам", "Ответьте на контрольные вопросы перед переходом к следующему уроку"].map((point, i) => (
+              <div key={i} className="flex items-start gap-2 mb-2">
+                <div className="w-5 h-5 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: 'rgba(59,130,246,0.2)' }}>
+                  <span className="text-xs text-blue-400 font-bold">{i + 1}</span>
+                </div>
+                <p className="text-sm text-white/70">{point}</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-3 animate-fade-up opacity-0 delay-200" style={{ animationFillMode: 'forwards' }}>
+            {activeLessonIdx > 0 && (
+              <button onClick={() => setActiveLessonIdx(i => i - 1)} className="btn-ghost flex-1 flex items-center justify-center gap-2 text-sm">
+                <Icon name="ArrowLeft" size={16} />Назад
+              </button>
+            )}
+            <button
+              onClick={() => { setView("course"); showToast("✅ Урок завершён!"); }}
+              className="btn-primary flex-1 flex items-center justify-center gap-2"
+            >
+              <Icon name="CheckCircle" size={18} />Завершить урок
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (view === "cert" && selectedCourse) {
     return (
@@ -41,7 +90,7 @@ export default function LearningModule({ onBack }: Props) {
             <div className="py-3 border-t border-b border-white/10 mb-4">
               <p className="text-xs text-white/40">Дата: {new Date().toLocaleDateString("ru-RU")}</p>
             </div>
-            <button className="btn-primary flex items-center justify-center gap-2 text-sm py-3">
+            <button onClick={() => showToast("📥 Сертификат загружается...")} className="btn-primary flex items-center justify-center gap-2 text-sm py-3">
               <Icon name="Download" size={16} />Скачать сертификат
             </button>
           </div>
@@ -49,6 +98,11 @@ export default function LearningModule({ onBack }: Props) {
             Вернуться к курсам
           </button>
         </div>
+        {toast && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-2xl text-sm font-medium text-white animate-fade-up" style={{ background: 'rgba(245,158,11,0.9)', backdropFilter: 'blur(12px)' }}>
+            {toast}
+          </div>
+        )}
       </div>
     );
   }
@@ -105,6 +159,11 @@ export default function LearningModule({ onBack }: Props) {
   if (view === "course" && selectedCourse) {
     return (
       <div className="min-h-screen relative z-10 animate-fade-in">
+        {toast && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-2xl text-sm font-medium text-white animate-fade-up" style={{ background: 'rgba(59,130,246,0.9)', backdropFilter: 'blur(12px)' }}>
+            {toast}
+          </div>
+        )}
         <ModuleHeader title={selectedCourse.title} onBack={() => setView("list")} subtitle={`${selectedCourse.lessons} уроков`} />
         <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
           <div className="glass rounded-2xl p-4">
@@ -120,27 +179,45 @@ export default function LearningModule({ onBack }: Props) {
             {Array.from({ length: selectedCourse.lessons }).map((_, i) => {
               const done = i < Math.floor(selectedCourse.lessons * selectedCourse.progress / 100);
               const current = i === Math.floor(selectedCourse.lessons * selectedCourse.progress / 100);
+              const lessonNames = ["Введение в курс", "Основные понятия", "Практические примеры"];
+              const name = i === selectedCourse.lessons - 1 ? "Итоговый тест" : lessonNames[i] || `Тема ${i + 1}`;
               return (
-                <div key={i} className="flex items-center gap-3 p-4 rounded-2xl" style={{ background: done ? 'rgba(59,130,246,0.08)' : current ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)', border: `1px solid ${done ? 'rgba(59,130,246,0.2)' : current ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)'}` }}>
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${done ? "" : current ? "" : "opacity-40"}`} style={{ background: done ? 'rgba(59,130,246,0.25)' : 'rgba(255,255,255,0.08)' }}>
+                <button
+                  key={i}
+                  disabled={!done && !current}
+                  onClick={() => {
+                    if (i === selectedCourse.lessons - 1) { setView("test"); setTestAnswers({}); setTestDone(false); }
+                    else { setActiveLessonIdx(i); setView("lesson"); }
+                  }}
+                  className="w-full flex items-center gap-3 p-4 rounded-2xl text-left transition-all"
+                  style={{ background: done ? 'rgba(59,130,246,0.08)' : current ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)', border: `1px solid ${done ? 'rgba(59,130,246,0.2)' : current ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)'}`, opacity: !done && !current ? 0.4 : 1 }}
+                >
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: done ? 'rgba(59,130,246,0.25)' : 'rgba(255,255,255,0.08)' }}>
                     <Icon name={done ? "CheckCircle" : current ? "Play" : "Lock"} size={16} color={done ? "#3b82f6" : current ? "white" : "rgba(255,255,255,0.4)"} />
                   </div>
                   <div className="flex-1">
                     <p className={`text-sm font-medium ${done ? "text-white/60" : current ? "text-white" : "text-white/30"}`}>
-                      Урок {i + 1}: {i === 0 ? "Введение в курс" : i === 1 ? "Основные понятия" : i === 2 ? "Практические примеры" : i === selectedCourse.lessons - 1 ? "Итоговый тест" : `Тема ${i + 1}`}
+                      Урок {i + 1}: {name}
                     </p>
                   </div>
                   {current && <span className="tag text-xs">Текущий</span>}
                   {done && <Icon name="Check" size={14} color="rgba(59,130,246,0.6)" />}
-                </div>
+                </button>
               );
             })}
           </div>
           <div className="flex gap-2">
-            <button className="btn-primary flex-1 flex items-center justify-center gap-2">
+            <button
+              onClick={() => {
+                const currentIdx = Math.floor(selectedCourse.lessons * selectedCourse.progress / 100);
+                setActiveLessonIdx(currentIdx);
+                setView("lesson");
+              }}
+              className="btn-primary flex-1 flex items-center justify-center gap-2"
+            >
               <Icon name="Play" size={18} />Продолжить обучение
             </button>
-            <button onClick={() => setView("test")} className="btn-ghost px-4 flex items-center gap-2 text-sm">
+            <button onClick={() => { setView("test"); setTestAnswers({}); setTestDone(false); }} className="btn-ghost px-4 flex items-center gap-2 text-sm">
               <Icon name="ClipboardCheck" size={16} />Тест
             </button>
           </div>

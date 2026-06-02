@@ -4,6 +4,8 @@ import ModuleHeader from "@/components/ModuleHeader";
 
 interface Props { onBack: () => void; }
 
+type DocAction = { docName: string; type: "send" } | null;
+
 const DOCS = [
   { id: 1, name: "Договор поставки №245-2026", type: "PDF", category: "Договоры", direction: "Входящий", dept: "Отдел закупок", date: "01.06.2026", size: "1.2 МБ" },
   { id: 2, name: "Акт приёмки-передачи оборудования", type: "DOCX", category: "Акты", direction: "Внутренний", dept: "Склад", date: "30.05.2026", size: "340 КБ" },
@@ -26,6 +28,17 @@ export default function DocumentsModule({ onBack }: Props) {
   const [catFilter, setCatFilter] = useState("Все");
   const [dirFilter, setDirFilter] = useState("Все");
   const [search, setSearch] = useState("");
+  const [toast, setToast] = useState<string | null>(null);
+  const [docAction, setDocAction] = useState<DocAction>(null);
+  const [sendEmail, setSendEmail] = useState("");
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const handleDownload = (docName: string) => showToast(`📥 Загружается: ${docName}`);
+  const handlePrint = (docName: string) => { window.print(); showToast(`🖨️ Отправлено на печать: ${docName}`); };
 
   const filtered = DOCS.filter(d =>
     (catFilter === "Все" || d.category === catFilter) &&
@@ -35,6 +48,33 @@ export default function DocumentsModule({ onBack }: Props) {
 
   return (
     <div className="min-h-screen relative z-10 animate-fade-in">
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-2xl text-sm font-medium text-white animate-fade-up" style={{ background: 'rgba(27,111,255,0.9)', backdropFilter: 'blur(12px)', border: '1px solid rgba(27,111,255,0.5)' }}>
+          {toast}
+        </div>
+      )}
+      {/* Send modal */}
+      {docAction && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)' }} onClick={() => setDocAction(null)}>
+          <div className="w-full max-w-2xl animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }} onClick={e => e.stopPropagation()}>
+            <div className="glass-strong rounded-t-3xl p-6 space-y-4">
+              <h3 className="text-base font-bold text-white">Отправить документ</h3>
+              <p className="text-xs text-white/50 truncate">{docAction.docName}</p>
+              <div>
+                <label className="text-xs text-white/50 uppercase tracking-wider mb-2 block">Email или получатель</label>
+                <input className="input-field" placeholder="email@company.ru" value={sendEmail} onChange={e => setSendEmail(e.target.value)} autoFocus />
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setDocAction(null)} className="btn-ghost flex-1 text-sm">Отмена</button>
+                <button className="btn-primary flex-1 text-sm flex items-center justify-center gap-2" onClick={() => { setDocAction(null); setSendEmail(""); showToast(`✉️ Документ отправлен на ${sendEmail || "адрес"}`); }} disabled={!sendEmail}>
+                  <Icon name="Send" size={15} />Отправить
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <ModuleHeader title="Документооборот" onBack={onBack} subtitle={`${DOCS.length} документов`} icon="FolderOpen" iconColor="#10b981" />
       <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
         <div className="animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
@@ -83,13 +123,13 @@ export default function DocumentsModule({ onBack }: Props) {
                   </div>
                 </div>
                 <div className="flex gap-2 mt-3 pt-3 border-t border-white/8">
-                  <button className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-white/70 hover:text-white transition-colors hover:bg-white/10">
+                  <button onClick={() => handleDownload(doc.name)} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-white/70 hover:text-white transition-colors hover:bg-white/10 active:scale-95">
                     <Icon name="Download" size={13} />Скачать
                   </button>
-                  <button className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-white/70 hover:text-white transition-colors hover:bg-white/10">
+                  <button onClick={() => setDocAction({ docName: doc.name, type: "send" })} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-white/70 hover:text-white transition-colors hover:bg-white/10 active:scale-95">
                     <Icon name="Mail" size={13} />Отправить
                   </button>
-                  <button className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-white/70 hover:text-white transition-colors hover:bg-white/10">
+                  <button onClick={() => handlePrint(doc.name)} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-white/70 hover:text-white transition-colors hover:bg-white/10 active:scale-95">
                     <Icon name="Printer" size={13} />Печать
                   </button>
                 </div>

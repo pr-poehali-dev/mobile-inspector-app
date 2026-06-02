@@ -26,9 +26,66 @@ const PROPOSALS = [
 ];
 
 export default function RFPModule({ onBack }: Props) {
-  const [view, setView] = useState<"list" | "create" | "compare">("list");
+  const [view, setView] = useState<"list" | "create" | "compare" | "upload">("list");
   const [selectedRfp, setSelectedRfp] = useState<typeof RFPS[0] | null>(null);
   const [form, setForm] = useState({ title: "", desc: "", deadline: "", category: "" });
+  const [rfpList, setRfpList] = useState(RFPS);
+  const [toast, setToast] = useState<string | null>(null);
+  const [uploadCompany, setUploadCompany] = useState("");
+  const [uploadPrice, setUploadPrice] = useState("");
+  const [uploadFile, setUploadFile] = useState("");
+
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+  const saveDraft = () => {
+    if (!form.title) return;
+    setRfpList(prev => [...prev, { id: Date.now(), title: form.title, desc: form.desc, category: form.category || "Без категории", deadline: form.deadline || "—", status: "Черновик" as Status, proposals: 0 }]);
+    setForm({ title: "", desc: "", deadline: "", category: "" });
+    setView("list");
+    showToast("💾 Черновик сохранён");
+  };
+
+  const publish = () => {
+    if (!form.title) return;
+    setRfpList(prev => [...prev, { id: Date.now(), title: form.title, desc: form.desc, category: form.category || "Без категории", deadline: form.deadline || "—", status: "Активен" as Status, proposals: 0 }]);
+    setForm({ title: "", desc: "", deadline: "", category: "" });
+    setView("list");
+    showToast("🚀 Запрос опубликован");
+  };
+
+  if (view === "upload" && selectedRfp) {
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        <ModuleHeader title="Загрузить предложение" onBack={() => setView("list")} subtitle={selectedRfp.title} />
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Название компании</label>
+            <input className="input-field" placeholder="ООО «Ваша компания»" value={uploadCompany} onChange={e => setUploadCompany(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Предлагаемая цена</label>
+            <input className="input-field" placeholder="0 ₽" value={uploadPrice} onChange={e => setUploadPrice(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Файл предложения</label>
+            <div className="border-2 border-dashed border-white/15 rounded-xl p-5 flex flex-col items-center gap-2 cursor-pointer hover:border-violet-500/50 transition-colors" onClick={() => setUploadFile("proposal.pdf")}>
+              <Icon name="Upload" size={24} color={uploadFile ? "#8b5cf6" : "rgba(255,255,255,0.3)"} />
+              <span className="text-xs" style={{ color: uploadFile ? '#a78bfa' : 'rgba(255,255,255,0.4)' }}>
+                {uploadFile ? `✓ ${uploadFile}` : "Нажмите для выбора PDF/DOCX"}
+              </span>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => setView("list")} className="btn-ghost flex-1 text-sm">Отмена</button>
+            <button className="btn-primary flex-1 text-sm flex items-center justify-center gap-2" disabled={!uploadCompany || !uploadPrice}
+              onClick={() => { setView("list"); showToast("📎 Предложение загружено и отправлено заказчику"); setUploadCompany(""); setUploadPrice(""); setUploadFile(""); }}>
+              <Icon name="Send" size={15} />Отправить
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (view === "compare" && selectedRfp) {
     return (
@@ -98,8 +155,10 @@ export default function RFPModule({ onBack }: Props) {
             </div>
           </div>
           <div className="flex gap-3">
-            <button className="btn-ghost flex-1">Сохранить черновик</button>
-            <button className="btn-primary flex-1 flex items-center justify-center gap-2"><Icon name="Send" size={16} />Опубликовать</button>
+            <button onClick={saveDraft} className="btn-ghost flex-1" disabled={!form.title}>Сохранить черновик</button>
+            <button onClick={publish} className="btn-primary flex-1 flex items-center justify-center gap-2" disabled={!form.title || !form.desc}>
+              <Icon name="Send" size={16} />Опубликовать
+            </button>
           </div>
         </div>
       </div>
@@ -108,13 +167,18 @@ export default function RFPModule({ onBack }: Props) {
 
   return (
     <div className="min-h-screen relative z-10 animate-fade-in">
-      <ModuleHeader title="Запрос предложений" onBack={onBack} subtitle={`${RFPS.length} запроса`} icon="FileSearch" iconColor="#8b5cf6" />
+      {toast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-2xl text-sm font-medium text-white animate-fade-up" style={{ background: 'rgba(139,92,246,0.9)', backdropFilter: 'blur(12px)', border: '1px solid rgba(139,92,246,0.5)' }}>
+          {toast}
+        </div>
+      )}
+      <ModuleHeader title="Запрос предложений" onBack={onBack} subtitle={`${rfpList.length} запросов`} icon="FileSearch" iconColor="#8b5cf6" />
       <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
         <button onClick={() => setView("create")} className="btn-primary flex items-center justify-center gap-2 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
           <Icon name="Plus" size={18} />Создать запрос предложений
         </button>
         <div className="space-y-3">
-          {RFPS.map((rfp, i) => {
+          {rfpList.map((rfp, i) => {
             const sc = STATUS_COLORS[rfp.status];
             return (
               <div key={rfp.id} className={`card-module animate-fade-up opacity-0`} style={{ animationDelay: `${0.1 + i * 0.07}s`, animationFillMode: 'forwards' }}>
@@ -129,10 +193,10 @@ export default function RFPModule({ onBack }: Props) {
                   <span className="flex items-center gap-1"><Icon name="FileText" size={11} />{rfp.proposals} предложений</span>
                 </div>
                 <div className="flex gap-2 pt-3 border-t border-white/8">
-                  <button className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-white/60 hover:text-white transition-colors hover:bg-white/10">
+                  <button onClick={() => { setSelectedRfp(rfp); setView("upload"); }} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-white/60 hover:text-white transition-colors hover:bg-white/10 active:scale-95">
                     <Icon name="Upload" size={13} />Загрузить предложение
                   </button>
-                  <button onClick={() => { setSelectedRfp(rfp); setView("compare"); }} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors" style={{ background: 'rgba(27,111,255,0.1)', border: '1px solid rgba(27,111,255,0.2)' }}>
+                  <button onClick={() => { setSelectedRfp(rfp); setView("compare"); }} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors active:scale-95" style={{ background: 'rgba(27,111,255,0.1)', border: '1px solid rgba(27,111,255,0.2)' }}>
                     <Icon name="BarChart3" size={13} />Сравнить
                   </button>
                 </div>

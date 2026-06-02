@@ -26,6 +26,13 @@ export default function VideoModule({ onBack, user }: Props) {
   ]);
   const [noteText, setNoteText] = useState("");
   const [notes, setNotes] = useState<{ time: string; text: string }[]>([]);
+  const [likedVideos, setLikedVideos] = useState<number[]>([]);
+  const [savedVideos, setSavedVideos] = useState<number[]>([2]);
+  const [currentChapter, setCurrentChapter] = useState(0);
+  const [playProgress, setPlayProgress] = useState(0.33);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [showUploadForm, setShowUploadForm] = useState(false);
+  const [uploadForm, setUploadForm] = useState({ title: "", desc: "", category: "" });
 
   const filtered = activeCategory === "Все" ? VIDEOS : VIDEOS.filter(v => v.category === activeCategory);
 
@@ -42,30 +49,51 @@ export default function VideoModule({ onBack, user }: Props) {
   };
 
   if (selectedVideo) {
+    const isLiked = likedVideos.includes(selectedVideo.id);
+    const isSaved = savedVideos.includes(selectedVideo.id);
+
     return (
       <div className="min-h-screen relative z-10 animate-fade-in">
         <ModuleHeader title={selectedVideo.title} onBack={() => setSelectedVideo(null)} subtitle={selectedVideo.author} />
         <div className="max-w-2xl mx-auto px-4 pt-4 space-y-4 pb-8">
-          {/* Player placeholder */}
+          {/* Player */}
           <div className="rounded-2xl overflow-hidden relative" style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.1)', aspectRatio: '16/9' }}>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center cursor-pointer transition-transform hover:scale-110" style={{ background: 'linear-gradient(135deg, #1b6fff, #0040cc)' }}>
-                <Icon name="Play" size={26} color="white" />
-              </div>
-              <p className="text-white/40 text-sm mt-3">{selectedVideo.duration}</p>
+              <button
+                onClick={() => setIsPlaying(p => !p)}
+                className="w-16 h-16 rounded-full flex items-center justify-center cursor-pointer transition-transform hover:scale-110 active:scale-95"
+                style={{ background: 'linear-gradient(135deg, #1b6fff, #0040cc)' }}
+              >
+                <Icon name={isPlaying ? "Pause" : "Play"} size={26} color="white" />
+              </button>
+              <p className="text-white/40 text-sm mt-3">{selectedVideo.chapters[currentChapter]?.split(" ").slice(1).join(" ") || selectedVideo.duration}</p>
             </div>
             <div className="absolute top-3 right-3 flex gap-2">
               <span className="tag text-xs">{selectedVideo.category}</span>
             </div>
             {/* Timeline */}
             <div className="absolute bottom-0 left-0 right-0 p-3">
-              <div className="relative h-1.5 bg-white/20 rounded-full">
-                <div className="h-full w-1/3 rounded-full" style={{ background: 'linear-gradient(90deg, #1b6fff, #a78bfa)' }} />
-                <div className="absolute top-1/2 left-1/3 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-lg" style={{ transform: 'translate(-50%, -50%)' }} />
+              <div
+                className="relative h-1.5 bg-white/20 rounded-full cursor-pointer"
+                onClick={e => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const pct = (e.clientX - rect.left) / rect.width;
+                  setPlayProgress(Math.max(0, Math.min(1, pct)));
+                }}
+              >
+                <div className="h-full rounded-full" style={{ width: `${playProgress * 100}%`, background: 'linear-gradient(90deg, #1b6fff, #a78bfa)' }} />
+                <div className="absolute top-1/2 rounded-full w-3 h-3 bg-white shadow-lg -translate-y-1/2 -translate-x-1/2" style={{ left: `${playProgress * 100}%` }} />
               </div>
               <div className="flex justify-between mt-1.5">
                 {selectedVideo.chapters.map((ch, i) => (
-                  <button key={i} className="text-xs text-white/40 hover:text-white/80 transition-colors">{ch.split(" ")[0]}</button>
+                  <button
+                    key={i}
+                    onClick={() => { setCurrentChapter(i); setPlayProgress(i / selectedVideo.chapters.length); }}
+                    className="text-xs transition-colors"
+                    style={{ color: currentChapter === i ? '#4d8fff' : 'rgba(255,255,255,0.4)' }}
+                  >
+                    {ch.split(" ")[0]}
+                  </button>
                 ))}
               </div>
             </div>
@@ -74,8 +102,20 @@ export default function VideoModule({ onBack, user }: Props) {
           {/* Stats */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-1.5 text-white/50 text-sm"><Icon name="Eye" size={14} />{selectedVideo.views.toLocaleString("ru-RU")}</div>
-            <button className="flex items-center gap-1.5 text-sm transition-colors hover:text-blue-400 text-white/50"><Icon name="ThumbsUp" size={14} />Полезно</button>
-            <button className="flex items-center gap-1.5 text-sm transition-colors hover:text-blue-400 text-white/50"><Icon name="Bookmark" size={14} />Сохранить</button>
+            <button
+              onClick={() => setLikedVideos(prev => isLiked ? prev.filter(id => id !== selectedVideo.id) : [...prev, selectedVideo.id])}
+              className="flex items-center gap-1.5 text-sm transition-all active:scale-90"
+              style={{ color: isLiked ? '#4d8fff' : 'rgba(255,255,255,0.5)' }}
+            >
+              <Icon name="ThumbsUp" size={14} color={isLiked ? '#4d8fff' : undefined} />Полезно{isLiked ? " ✓" : ""}
+            </button>
+            <button
+              onClick={() => setSavedVideos(prev => isSaved ? prev.filter(id => id !== selectedVideo.id) : [...prev, selectedVideo.id])}
+              className="flex items-center gap-1.5 text-sm transition-all active:scale-90"
+              style={{ color: isSaved ? '#f59e0b' : 'rgba(255,255,255,0.5)' }}
+            >
+              <Icon name="Bookmark" size={14} color={isSaved ? '#f59e0b' : undefined} />{isSaved ? "Сохранено" : "Сохранить"}
+            </button>
           </div>
 
           {/* Chapters */}
@@ -83,9 +123,17 @@ export default function VideoModule({ onBack, user }: Props) {
             <h3 className="text-sm font-semibold text-white/80 mb-3 flex items-center gap-2"><Icon name="List" size={15} />Главы</h3>
             <div className="space-y-2">
               {selectedVideo.chapters.map((ch, i) => (
-                <button key={i} className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-white/10 transition-colors text-left">
-                  <span className="text-xs font-mono text-blue-400 w-10 flex-shrink-0">{ch.split(" ")[0]}</span>
-                  <span className="text-sm text-white/70">{ch.split(" ").slice(1).join(" ")}</span>
+                <button
+                  key={i}
+                  onClick={() => { setCurrentChapter(i); setPlayProgress(i / selectedVideo.chapters.length); setIsPlaying(true); }}
+                  className="w-full flex items-center gap-3 p-2 rounded-xl transition-colors text-left"
+                  style={{ background: currentChapter === i ? 'rgba(27,111,255,0.12)' : 'transparent' }}
+                >
+                  {currentChapter === i && isPlaying
+                    ? <Icon name="Volume2" size={14} color="#4d8fff" className="w-10 flex-shrink-0" />
+                    : <span className="text-xs font-mono text-blue-400 w-10 flex-shrink-0">{ch.split(" ")[0]}</span>
+                  }
+                  <span className="text-sm" style={{ color: currentChapter === i ? 'white' : 'rgba(255,255,255,0.7)' }}>{ch.split(" ").slice(1).join(" ")}</span>
                 </button>
               ))}
             </div>
@@ -139,11 +187,30 @@ export default function VideoModule({ onBack, user }: Props) {
     <div className="min-h-screen relative z-10 animate-fade-in">
       <ModuleHeader title="Видеоматериалы" onBack={onBack} subtitle={`${VIDEOS.length} видео`} icon="Play" iconColor="#ef4444" />
       <div className="max-w-2xl mx-auto px-4 pt-4 space-y-4 pb-8">
-        {user.role === "videoblogger" || user.role === "admin" ? (
-          <button className="btn-primary flex items-center justify-center gap-2 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
-            <Icon name="Upload" size={18} />Загрузить видео
-          </button>
-        ) : null}
+        {(user.role === "videoblogger" || user.role === "admin") && (
+          showUploadForm ? (
+            <div className="glass-strong rounded-2xl p-4 animate-scale-in space-y-3">
+              <h3 className="text-sm font-semibold text-white">Загрузить видео</h3>
+              <div className="border-2 border-dashed border-white/15 rounded-xl p-5 flex flex-col items-center gap-2 cursor-pointer hover:border-blue-500/50 transition-colors">
+                <Icon name="Upload" size={24} color="rgba(255,255,255,0.3)" />
+                <span className="text-xs text-white/40">Нажмите для выбора MP4 (до 2 ГБ)</span>
+              </div>
+              <input className="input-field text-sm" placeholder="Название видео" value={uploadForm.title} onChange={e => setUploadForm(f => ({ ...f, title: e.target.value }))} />
+              <textarea className="input-field text-sm resize-none" rows={2} placeholder="Описание" value={uploadForm.desc} onChange={e => setUploadForm(f => ({ ...f, desc: e.target.value }))} />
+              <input className="input-field text-sm" placeholder="Категория" value={uploadForm.category} onChange={e => setUploadForm(f => ({ ...f, category: e.target.value }))} />
+              <div className="flex gap-2">
+                <button onClick={() => setShowUploadForm(false)} className="btn-ghost flex-1 text-sm">Отмена</button>
+                <button className="btn-primary flex-1 text-sm flex items-center justify-center gap-1" disabled={!uploadForm.title}>
+                  <Icon name="Upload" size={15} />Загрузить
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowUploadForm(true)} className="btn-primary flex items-center justify-center gap-2 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
+              <Icon name="Upload" size={18} />Загрузить видео
+            </button>
+          )
+        )}
 
         {/* Categories */}
         <div className="flex gap-2 overflow-x-auto pb-1 animate-fade-up opacity-0 delay-100" style={{ animationFillMode: 'forwards' }}>

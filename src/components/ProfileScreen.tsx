@@ -25,7 +25,114 @@ const ROLE_LABELS: Record<string, { label: string; color: string }> = {
 export default function ProfileScreen({ user, onBack, onLogout }: Props) {
   const [openDoc, setOpenDoc] = useState<string | null>(null);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
+  const [settingsModal, setSettingsModal] = useState<string | null>(null);
+  const [changePhoneStep, setChangePhoneStep] = useState<"idle" | "phone" | "code">("idle");
+  const [newPhone, setNewPhone] = useState("");
+  const [notifSettings, setNotifSettings] = useState({ push: true, email: true, sms: false });
   const roleInfo = ROLE_LABELS[user.role] || ROLE_LABELS.user;
+
+  // Модал смены номера
+  if (changePhoneStep !== "idle") {
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        <ModuleHeader title="Изменить номер" onBack={() => setChangePhoneStep("idle")} />
+        <div className="max-w-2xl mx-auto px-4 pt-6 pb-8 space-y-4">
+          {changePhoneStep === "phone" && (
+            <div className="glass-strong rounded-2xl p-5 space-y-4 animate-scale-in">
+              <p className="text-white/60 text-sm">Введите новый номер телефона. Мы отправим код подтверждения.</p>
+              <input className="input-field" type="tel" placeholder="+7 (___) ___-__-__" value={newPhone} onChange={e => setNewPhone(e.target.value)} />
+              <button className="btn-primary flex items-center justify-center gap-2" onClick={() => setChangePhoneStep("code")} disabled={newPhone.length < 5}>
+                <Icon name="Send" size={18} />Получить код
+              </button>
+            </div>
+          )}
+          {changePhoneStep === "code" && (
+            <div className="glass-strong rounded-2xl p-5 space-y-4 animate-scale-in">
+              <p className="text-white/60 text-sm">Код отправлен на <span className="text-white font-medium">{newPhone}</span></p>
+              <p className="text-xs text-blue-400">Для демо: введите любые 4 цифры</p>
+              <div className="flex gap-3 justify-center">
+                {[0,1,2,3].map(i => (
+                  <input key={i} className="otp-input" type="text" inputMode="numeric" maxLength={1} />
+                ))}
+              </div>
+              <button className="btn-primary flex items-center justify-center gap-2" onClick={() => setChangePhoneStep("idle")}>
+                <Icon name="Check" size={18} />Подтвердить
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Модал настроек
+  if (settingsModal) {
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        <ModuleHeader title={settingsModal} onBack={() => setSettingsModal(null)} />
+        <div className="max-w-2xl mx-auto px-4 pt-5 pb-8 space-y-3">
+          {settingsModal === "Уведомления" && (
+            <div className="glass rounded-2xl overflow-hidden divide-y divide-white/5 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
+              {[
+                { key: "push", label: "Push-уведомления", desc: "Уведомления в приложении" },
+                { key: "email", label: "Email-уведомления", desc: "На почту при важных событиях" },
+                { key: "sms", label: "SMS-уведомления", desc: "Только критические оповещения" },
+              ].map(item => (
+                <div key={item.key} className="flex items-center gap-3 px-4 py-4">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-white">{item.label}</p>
+                    <p className="text-xs text-white/40">{item.desc}</p>
+                  </div>
+                  <button
+                    onClick={() => setNotifSettings(prev => ({ ...prev, [item.key]: !prev[item.key as keyof typeof prev] }))}
+                    className="w-12 h-6 rounded-full transition-all relative flex-shrink-0"
+                    style={{ background: notifSettings[item.key as keyof typeof notifSettings] ? 'linear-gradient(135deg, #1b6fff, #0040cc)' : 'rgba(255,255,255,0.1)' }}
+                  >
+                    <span className="absolute top-0.5 rounded-full w-5 h-5 bg-white shadow transition-all" style={{ left: notifSettings[item.key as keyof typeof notifSettings] ? '26px' : '2px' }} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {settingsModal === "Внешний вид" && (
+            <div className="space-y-3 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
+              {[
+                { label: "Тёмная тема", desc: "Текущая тема оформления", active: true },
+                { label: "Светлая тема", desc: "Скоро будет доступна", active: false },
+                { label: "Системная", desc: "Следует настройкам устройства", active: false },
+              ].map(t => (
+                <button key={t.label} className="w-full flex items-center gap-3 p-4 rounded-2xl text-left transition-all" style={{ background: t.active ? 'rgba(27,111,255,0.15)' : 'rgba(255,255,255,0.04)', border: `1px solid ${t.active ? 'rgba(27,111,255,0.4)' : 'rgba(255,255,255,0.08)'}` }}>
+                  <div className={`w-5 h-5 rounded-full flex-shrink-0 border-2 flex items-center justify-center ${t.active ? "border-blue-500" : "border-white/30"}`}>
+                    {t.active && <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-white">{t.label}</p>
+                    <p className="text-xs text-white/40">{t.desc}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          {settingsModal === "Язык: Русский" && (
+            <div className="space-y-3 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
+              {[
+                { label: "Русский", code: "RU", active: true },
+                { label: "English", code: "EN", active: false },
+              ].map(l => (
+                <button key={l.code} className="w-full flex items-center gap-3 p-4 rounded-2xl text-left transition-all" style={{ background: l.active ? 'rgba(27,111,255,0.15)' : 'rgba(255,255,255,0.04)', border: `1px solid ${l.active ? 'rgba(27,111,255,0.4)' : 'rgba(255,255,255,0.08)'}` }}>
+                  <div className={`w-5 h-5 rounded-full flex-shrink-0 border-2 flex items-center justify-center ${l.active ? "border-blue-500" : "border-white/30"}`}>
+                    {l.active && <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />}
+                  </div>
+                  <span className="text-sm font-medium text-white">{l.label}</span>
+                  {l.active && <span className="ml-auto tag text-xs">Текущий</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (openDoc) {
     const doc = LEGAL_DOCS.find(d => d.id === openDoc);
@@ -95,7 +202,7 @@ export default function ProfileScreen({ user, onBack, onLogout }: Props) {
               { icon: "Palette", label: "Внешний вид", color: "#8b5cf6" },
               { icon: "Globe", label: "Язык: Русский", color: "#06b6d4" },
             ].map(item => (
-              <button key={item.label} className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/5 transition-colors text-left">
+              <button key={item.label} onClick={() => setSettingsModal(item.label)} className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/5 transition-colors text-left">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${item.color}15` }}>
                   <Icon name={item.icon} size={16} color={item.color} />
                 </div>
@@ -110,7 +217,7 @@ export default function ProfileScreen({ user, onBack, onLogout }: Props) {
         <div className="animate-fade-up opacity-0 delay-300" style={{ animationFillMode: 'forwards' }}>
           <p className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-2 px-1">Безопасность</p>
           <div className="glass rounded-2xl overflow-hidden divide-y divide-white/5">
-            <button className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/5 transition-colors text-left">
+            <button onClick={() => setChangePhoneStep("phone")} className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/5 transition-colors text-left">
               <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(27,111,255,0.15)' }}>
                 <Icon name="Lock" size={16} color="#1b6fff" />
               </div>
