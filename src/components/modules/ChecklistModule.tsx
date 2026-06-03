@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
+import { useApp } from "@/context/AppContext";
 
 interface Props { onBack: () => void; }
 
@@ -202,7 +203,7 @@ const INITIAL_SPHERES: Sphere[] = [
   },
 ];
 
-type ViewMode = "spheres" | "areas" | "checklists" | "survey" | "admin";
+type ViewMode = "spheres" | "areas" | "checklists" | "object" | "survey" | "admin" | "history" | "historyDetail";
 
 interface QuestionState {
   answer: AnswerValue;
@@ -210,7 +211,21 @@ interface QuestionState {
   photos: string[];
 }
 
+interface HistoryRecord {
+  id: number;
+  objectName: string;
+  checklistTitle: string;
+  sphereTitle: string;
+  areaTitle: string;
+  date: string;
+  yes: number;
+  no: number;
+  na: number;
+  questions: { text: string; answer: AnswerValue; note: string; photos: string[] }[];
+}
+
 export default function ChecklistModule({ onBack }: Props) {
+  const { isAdmin } = useApp();
   const [view, setView] = useState<ViewMode>("spheres");
   const [spheres, setSpheres] = useState<Sphere[]>(INITIAL_SPHERES);
   const [selectedSphere, setSelectedSphere] = useState<Sphere | null>(null);
@@ -225,6 +240,12 @@ export default function ChecklistModule({ onBack }: Props) {
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [showEmailForm, setShowEmailForm] = useState(false);
+  const [objectName, setObjectName] = useState("");
+  const [pendingChecklist, setPendingChecklist] = useState<ChecklistData | null>(null);
+  const [history, setHistory] = useState<HistoryRecord[]>([]);
+  const [historyRecord, setHistoryRecord] = useState<HistoryRecord | null>(null);
+  const photoQIdRef = useRef<number | null>(null);
+  const photoFileRef = useRef<HTMLInputElement>(null);
 
   // Admin state
   const [adminView, setAdminView] = useState<"main" | "add-sphere" | "add-area" | "add-checklist">("main");
@@ -253,13 +274,54 @@ export default function ChecklistModule({ onBack }: Props) {
   };
 
   const openSurvey = (cl: ChecklistData) => {
-    setSelectedChecklist(cl);
+    setPendingChecklist(cl);
+    setObjectName("");
+    setView("object");
+  };
+
+  const startSurvey = () => {
+    if (!objectName.trim() || !pendingChecklist) return;
+    setSelectedChecklist(pendingChecklist);
     setCurrentQIndex(0);
     setQuestionStates({});
     setEmailSent(false);
     setShowEmailForm(false);
     setEmailInput("");
     setView("survey");
+  };
+
+  const handlePhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const qId = photoQIdRef.current;
+    if (!file || qId === null) return;
+    const reader = new FileReader();
+    reader.onload = () => addPhoto(qId, reader.result as string);
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const saveToHistory = () => {
+    if (!selectedChecklist) return;
+    const rec: HistoryRecord = {
+      id: Date.now(),
+      objectName: objectName || "Без названия",
+      checklistTitle: selectedChecklist.title,
+      sphereTitle: selectedSphere?.title || "",
+      areaTitle: selectedArea?.title || "",
+      date: new Date().toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }),
+      yes: selectedChecklist.questions.filter(q => getQState(q.id).answer === "yes").length,
+      no: selectedChecklist.questions.filter(q => getQState(q.id).answer === "no").length,
+      na: selectedChecklist.questions.filter(q => getQState(q.id).answer === "na").length,
+      questions: selectedChecklist.questions.map(q => ({ text: q.text, answer: getQState(q.id).answer, note: getQState(q.id).note, photos: getQState(q.id).photos })),
+    };
+    setHistory(prev => [rec, ...prev]);
+  };
+
+  const downloadPhoto = (dataUrl: string, idx: number) => {
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = `photo_${idx + 1}.png`;
+    a.click();
   };
 
   const generateAndPrintReport = useCallback(() => {
@@ -524,6 +586,108 @@ export default function ChecklistModule({ onBack }: Props) {
     );
   }
 
+  // ── OBJECT NAME VIEW ────────────────────────────────────────────────────────
+  if (view === "object" && pendingChecklist) {
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        <ModuleHeader title="Проверяемый объект" onBack={() => setView("checklists")} icon="MapPin" iconColor="#06b6d4" />
+        <div className="max-w-2xl mx-auto px-4 pt-6 pb-8 space-y-4">
+          <div className="glass-strong rounded-2xl p-5 space-y-4 animate-scale-in">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(6,182,212,0.2)' }}><Icon name="ClipboardCheck" size={24} color="#06b6d4" /></div>
+              <div>
+                <p className="text-sm font-semibold text-white">{pendingChecklist.title}</p>
+                <p className="text-xs text-white/40">{selectedSphere?.title} → {selectedArea?.title}</p>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Наименование проверяемого объекта *</label>
+              <input className="input-field" placeholder="Например: Склад №3, ул. Промышленная 12" value={objectName} onChange={e => setObjectName(e.target.value)} onKeyDown={e => e.key === "Enter" && startSurvey()} autoFocus />
+              <p className="text-xs text-white/30 mt-2">Это название будет указано в отчёте и истории проверок</p>
+            </div>
+            <button onClick={startSurvey} className="btn-primary flex items-center justify-center gap-2" disabled={!objectName.trim()} style={{ background: 'linear-gradient(135deg, #06b6d4, #0891b2)' }}>
+              <Icon name="Play" size={18} />Начать проверку
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── HISTORY LIST ──────────────────────────────────────────────────────────
+  if (view === "history") {
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        <ModuleHeader title="История проверок" onBack={() => setView("spheres")} icon="History" iconColor="#06b6d4" subtitle={`${history.length} проверок`} />
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
+          {history.map((rec, i) => (
+            <button key={rec.id} onClick={() => { setHistoryRecord(rec); setView("historyDetail"); }} className="w-full text-left glass rounded-2xl p-4 animate-fade-up opacity-0 hover:border-white/20 transition-all" style={{ animationDelay: `${i * 0.05}s`, animationFillMode: 'forwards' }}>
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(6,182,212,0.15)' }}><Icon name="MapPin" size={18} color="#06b6d4" /></div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white truncate">{rec.objectName}</p>
+                  <p className="text-xs text-white/40 truncate">{rec.checklistTitle}</p>
+                  <p className="text-xs text-white/30 mt-0.5">{rec.date}</p>
+                </div>
+                <div className="flex gap-1.5 flex-shrink-0">
+                  <span className="text-xs px-1.5 py-0.5 rounded-md font-semibold" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>{rec.yes}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded-md font-semibold" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>{rec.no}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded-md font-semibold" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>{rec.na}</span>
+                </div>
+              </div>
+            </button>
+          ))}
+          {history.length === 0 && (
+            <div className="text-center py-14">
+              <Icon name="History" size={36} color="rgba(255,255,255,0.15)" className="mx-auto mb-3" />
+              <p className="text-white/30 text-sm">История проверок пуста</p>
+              <p className="text-white/20 text-xs mt-1">Завершите чек-лист и сохраните результат</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── HISTORY DETAIL ────────────────────────────────────────────────────────
+  if (view === "historyDetail" && historyRecord) {
+    const ANS_LABEL: Record<string, { label: string; color: string }> = { yes: { label: "Да", color: "#22c55e" }, no: { label: "Нет", color: "#ef4444" }, na: { label: "Не требуется", color: "#f59e0b" } };
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        <ModuleHeader title={historyRecord.objectName} onBack={() => setView("history")} subtitle={historyRecord.checklistTitle} />
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
+          <div className="glass rounded-2xl p-4">
+            <div className="flex items-center gap-2 text-xs text-white/40 mb-3"><Icon name="Calendar" size={12} />{historyRecord.date}</div>
+            <div className="grid grid-cols-3 gap-2">
+              {[{ k: "yes", v: historyRecord.yes }, { k: "no", v: historyRecord.no }, { k: "na", v: historyRecord.na }].map(s => (
+                <div key={s.k} className="text-center py-3 rounded-xl" style={{ background: `${ANS_LABEL[s.k].color}12` }}><div className="text-xl font-bold" style={{ color: ANS_LABEL[s.k].color }}>{s.v}</div><div className="text-xs" style={{ color: ANS_LABEL[s.k].color }}>{ANS_LABEL[s.k].label}</div></div>
+              ))}
+            </div>
+          </div>
+          {historyRecord.questions.map((q, i) => (
+            <div key={i} className="glass rounded-2xl p-4">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <p className="text-sm text-white/80 flex-1">{i + 1}. {q.text}</p>
+                <span className="text-xs px-2 py-1 rounded-lg font-semibold flex-shrink-0" style={{ background: `${ANS_LABEL[q.answer || "na"].color}18`, color: ANS_LABEL[q.answer || "na"].color }}>{ANS_LABEL[q.answer || "na"].label}</span>
+              </div>
+              {q.note && <p className="text-xs text-white/50 italic mb-2">📝 {q.note}</p>}
+              {q.photos.length > 0 && (
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  {q.photos.map((p, pi) => (
+                    <div key={pi} className="aspect-square rounded-xl overflow-hidden relative" style={{ background: 'rgba(139,92,246,0.15)' }}>
+                      {p.startsWith("data:") ? <img src={p} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Icon name="ImageIcon" size={18} color="rgba(139,92,246,0.6)" /></div>}
+                      {p.startsWith("data:") && <button onClick={() => downloadPhoto(p, pi)} className="absolute bottom-1 right-1 w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}><Icon name="Download" size={12} color="white" /></button>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   // ── SURVEY VIEW ─────────────────────────────────────────────────────────────
   if (view === "survey" && selectedChecklist && currentQ) {
     const qState = getQState(currentQ.id);
@@ -597,20 +761,22 @@ export default function ChecklistModule({ onBack }: Props) {
                     {getQState(activeModal.qId).photos.length > 0 && (
                       <div className="grid grid-cols-3 gap-2 mb-4">
                         {getQState(activeModal.qId).photos.map((p, i) => (
-                          <div key={i} className="aspect-square rounded-xl flex items-center justify-center text-xs text-white/40" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)' }}>
-                            <Icon name="ImageIcon" size={20} color="rgba(139,92,246,0.6)" />
+                          <div key={i} className="aspect-square rounded-xl overflow-hidden relative group" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)' }}>
+                            {p.startsWith("data:") ? <img src={p} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Icon name="ImageIcon" size={20} color="rgba(139,92,246,0.6)" /></div>}
+                            <button onClick={() => setQuestionStates(prev => ({ ...prev, [activeModal.qId!]: { ...getQState(activeModal.qId!), photos: getQState(activeModal.qId!).photos.filter((_, idx) => idx !== i) } }))} className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}><Icon name="X" size={11} color="white" /></button>
                           </div>
                         ))}
                       </div>
                     )}
+                    <input ref={photoFileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoFile} />
                     <div className="grid grid-cols-2 gap-3">
                       <button className="flex flex-col items-center gap-2 py-5 rounded-2xl transition-colors hover:bg-white/10" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
-                        onClick={() => { addPhoto(activeModal.qId!, `photo_${Date.now()}`); }}>
+                        onClick={() => { photoQIdRef.current = activeModal.qId!; photoFileRef.current?.setAttribute("capture", "environment"); photoFileRef.current?.click(); }}>
                         <Icon name="Camera" size={24} color="rgba(255,255,255,0.6)" />
                         <span className="text-xs text-white/60">Сфотографировать</span>
                       </button>
                       <button className="flex flex-col items-center gap-2 py-5 rounded-2xl transition-colors hover:bg-white/10" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
-                        onClick={() => { addPhoto(activeModal.qId!, `file_${Date.now()}`); }}>
+                        onClick={() => { photoQIdRef.current = activeModal.qId!; photoFileRef.current?.removeAttribute("capture"); photoFileRef.current?.click(); }}>
                         <Icon name="Upload" size={24} color="rgba(255,255,255,0.6)" />
                         <span className="text-xs text-white/60">Загрузить файл</span>
                       </button>
@@ -714,6 +880,13 @@ export default function ChecklistModule({ onBack }: Props) {
                         </button>
                       )}
                       <button
+                        onClick={() => { saveToHistory(); setActiveModal(null); setView("checklists"); setSelectedChecklist(null); }}
+                        className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-semibold text-white"
+                        style={{ background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.4)', color: '#a78bfa' }}
+                      >
+                        <Icon name="Save" size={16} color="#a78bfa" />Сохранить в историю проверок
+                      </button>
+                      <button
                         className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-medium text-white/50 transition-all hover:text-white/70"
                         onClick={() => setActiveModal(null)}
                       >
@@ -735,7 +908,7 @@ export default function ChecklistModule({ onBack }: Props) {
                 <Icon name="ArrowLeft" size={20} color="white" />
               </button>
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-white/40 truncate">{selectedArea?.title}</p>
+                <p className="text-xs text-cyan-400 truncate flex items-center gap-1"><Icon name="MapPin" size={11} color="#06b6d4" />{objectName}</p>
                 <p className="text-sm font-semibold text-white truncate">{selectedChecklist.title}</p>
               </div>
               <span className="text-sm font-bold text-cyan-400 flex-shrink-0">{currentQIndex + 1}/{total}</span>
@@ -947,17 +1120,34 @@ export default function ChecklistModule({ onBack }: Props) {
               <p className="text-xs text-white/40">Выберите сферу деятельности</p>
             </div>
           </div>
-          <button
-            onClick={() => { setView("admin"); setAdminView("main"); }}
-            className="p-2 rounded-xl hover:bg-white/10 transition-colors"
-            title="Администрирование"
-          >
-            <Icon name="Settings" size={18} color="rgba(255,255,255,0.5)" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setView("history")}
+              className="relative p-2 rounded-xl hover:bg-white/10 transition-colors"
+              title="История проверок"
+            >
+              <Icon name="History" size={18} color="rgba(255,255,255,0.6)" />
+              {history.length > 0 && <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-white font-bold" style={{ background: '#06b6d4', fontSize: '9px' }}>{history.length}</span>}
+            </button>
+            {isAdmin && (
+              <button
+                onClick={() => { setView("admin"); setAdminView("main"); }}
+                className="p-2 rounded-xl hover:bg-white/10 transition-colors"
+                title="Администрирование"
+              >
+                <Icon name="Settings" size={18} color="rgba(255,255,255,0.5)" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto px-4 pt-4 pb-8">
+        <button onClick={() => setView("history")} className="w-full flex items-center gap-3 p-4 rounded-2xl text-left mb-4" style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.25)' }}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(6,182,212,0.15)' }}><Icon name="History" size={20} color="#06b6d4" /></div>
+          <div className="flex-1"><p className="text-sm font-semibold text-white">История проверок объектов</p><p className="text-xs text-white/40">{history.length} сохранённых проверок</p></div>
+          <Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.3)" />
+        </button>
         <div className="grid grid-cols-2 gap-3">
           {spheres.map((sphere, i) => (
             <button

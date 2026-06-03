@@ -70,8 +70,8 @@ function AppShell({ user, onLogout }: { user: User; onLogout: () => void }) {
       <div className="bg-orb w-64 h-64 opacity-10" style={{ background: 'radial-gradient(circle, #0ea5e9, transparent)', top: '50%', left: '40%' }} />
 
       {screen === "dashboard" && <Dashboard user={user} onNavigate={navigate} />}
-      {screen === "video" && <VideoModule onBack={() => navigate("dashboard")} user={user} />}
-      {screen === "news" && <NewsModule onBack={() => navigate("dashboard")} user={user} />}
+      {screen === "video" && <VideoModule onBack={() => navigate("dashboard")} />}
+      {screen === "news" && <NewsModule onBack={() => navigate("dashboard")} />}
       {screen === "documents" && <DocumentsModule onBack={() => navigate("dashboard")} />}
       {screen === "rfp" && <RFPModule onBack={() => navigate("dashboard")} />}
       {screen === "checklists" && <ChecklistModule onBack={() => navigate("dashboard")} />}

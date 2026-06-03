@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
+import { useApp } from "@/context/AppContext";
 
 interface Props { onBack: () => void; }
 
@@ -26,6 +27,7 @@ const TOPICS: Topic[] = [
 ];
 
 export default function ForumModule({ onBack }: Props) {
+  const { isAdmin, currentUser } = useApp();
   const [section, setSection] = useState("Все");
   const [topics, setTopics] = useState<Topic[]>(TOPICS);
   const [selectedTopicId, setSelectedTopicId] = useState<number | null>(null);
@@ -34,9 +36,22 @@ export default function ForumModule({ onBack }: Props) {
   const [creating, setCreating] = useState(false);
   const [newTopicTitle, setNewTopicTitle] = useState("");
   const [newTopicSection, setNewTopicSection] = useState("Общее");
+  const [editingTopicId, setEditingTopicId] = useState<number | null>(null);
+  const [editTitle, setEditTitle] = useState("");
 
   const selectedTopic = topics.find(t => t.id === selectedTopicId) || null;
   const filtered = topics.filter(t => section === "Все" || t.section === section);
+
+  const deleteTopic = (id: number) => {
+    setTopics(prev => prev.filter(t => t.id !== id));
+    if (selectedTopicId === id) setSelectedTopicId(null);
+  };
+  const togglePin = (id: number) => setTopics(prev => prev.map(t => t.id === id ? { ...t, pinned: !t.pinned } : t));
+  const saveEditTitle = (id: number) => {
+    if (!editTitle.trim()) return;
+    setTopics(prev => prev.map(t => t.id === id ? { ...t, title: editTitle } : t));
+    setEditingTopicId(null);
+  };
 
   const sendReply = () => {
     if (!replyText.trim() || !selectedTopicId) return;
@@ -48,7 +63,7 @@ export default function ForumModule({ onBack }: Props) {
 
   const createTopic = () => {
     if (!newTopicTitle.trim()) return;
-    const t: Topic = { id: Date.now(), title: newTopicTitle, author: "Вы", time: "только что", section: newTopicSection, replies: [] };
+    const t: Topic = { id: Date.now(), title: newTopicTitle, author: currentUser.name, time: "только что", section: newTopicSection, replies: [] };
     setTopics(prev => [t, ...prev]);
     setNewTopicTitle("");
     setCreating(false);
@@ -61,12 +76,28 @@ export default function ForumModule({ onBack }: Props) {
         <ModuleHeader title={selectedTopic.section} onBack={() => setSelectedTopicId(null)} />
         <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
           <div className="glass rounded-2xl p-4">
-            <h2 className="text-base font-bold text-white mb-2">{selectedTopic.title}</h2>
+            {editingTopicId === selectedTopic.id ? (
+              <div className="flex gap-2 mb-2">
+                <input className="input-field text-sm py-2 flex-1" value={editTitle} onChange={e => setEditTitle(e.target.value)} autoFocus />
+                <button onClick={() => saveEditTitle(selectedTopic.id)} className="px-3 rounded-xl" style={{ background: 'rgba(16,185,129,0.2)' }}><Icon name="Check" size={16} color="#10b981" /></button>
+                <button onClick={() => setEditingTopicId(null)} className="px-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.06)' }}><Icon name="X" size={16} color="rgba(255,255,255,0.5)" /></button>
+              </div>
+            ) : (
+              <h2 className="text-base font-bold text-white mb-2">{selectedTopic.title}</h2>
+            )}
             <div className="flex items-center gap-3 text-xs text-white/40">
               <span className="flex items-center gap-1"><Icon name="User" size={12} />{selectedTopic.author}</span>
               <span>{selectedTopic.time}</span>
               {selectedTopic.hasFile && <span className="flex items-center gap-1 text-blue-400"><Icon name="Paperclip" size={12} />Есть вложение</span>}
             </div>
+            {isAdmin && editingTopicId !== selectedTopic.id && (
+              <div className="flex gap-2 mt-3 pt-3 border-t border-white/5">
+                <span className="text-xs px-2 py-0.5 rounded-md self-center" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>Админ</span>
+                <button onClick={() => { setEditingTopicId(selectedTopic.id); setEditTitle(selectedTopic.title); }} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)' }}><Icon name="Pencil" size={12} />Изменить</button>
+                <button onClick={() => togglePin(selectedTopic.id)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs" style={{ background: selectedTopic.pinned ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.06)', color: selectedTopic.pinned ? '#f97316' : 'rgba(255,255,255,0.7)' }}><Icon name="Pin" size={12} />{selectedTopic.pinned ? "Открепить" : "Закрепить"}</button>
+                <button onClick={() => deleteTopic(selectedTopic.id)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs ml-auto" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}><Icon name="Trash2" size={12} />Удалить</button>
+              </div>
+            )}
           </div>
 
           {selectedTopic.replies.map((r, i) => (
@@ -144,22 +175,29 @@ export default function ForumModule({ onBack }: Props) {
         </div>
 
         <div className="space-y-3">
-          {filtered.map((topic, i) => (
-            <button key={topic.id} onClick={() => setSelectedTopicId(topic.id)} className={`w-full text-left card-module animate-fade-up opacity-0`} style={{ animationDelay: `${0.05 + i * 0.06}s`, animationFillMode: 'forwards' }}>
-              <div className="flex items-start gap-2 mb-2">
-                <span className="tag text-xs flex-shrink-0">{topic.section}</span>
-                {topic.pinned && <span className="flex items-center gap-1 text-xs text-orange-400"><Icon name="Pin" size={11} />Закреплено</span>}
-              </div>
-              <h3 className="text-sm font-semibold text-white mb-2 leading-snug">{topic.title}</h3>
-              <div className="flex items-center justify-between text-xs text-white/40">
-                <span className="flex items-center gap-1"><Icon name="User" size={11} />{topic.author} · {topic.time}</span>
-                <span className="flex items-center gap-1">
-                  <Icon name="MessageCircle" size={11} />
-                  {topic.replies.length}
-                  {topic.hasFile && <><Icon name="Paperclip" size={11} className="ml-2" /><span className="text-blue-400/70">файл</span></>}
-                </span>
-              </div>
-            </button>
+          {[...filtered].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned)).map((topic, i) => (
+            <div key={topic.id} className="relative card-module animate-fade-up opacity-0" style={{ animationDelay: `${0.05 + i * 0.06}s`, animationFillMode: 'forwards' }}>
+              <button onClick={() => setSelectedTopicId(topic.id)} className="w-full text-left">
+                <div className="flex items-start gap-2 mb-2">
+                  <span className="tag text-xs flex-shrink-0">{topic.section}</span>
+                  {topic.pinned && <span className="flex items-center gap-1 text-xs text-orange-400"><Icon name="Pin" size={11} />Закреплено</span>}
+                </div>
+                <h3 className="text-sm font-semibold text-white mb-2 leading-snug pr-8">{topic.title}</h3>
+                <div className="flex items-center justify-between text-xs text-white/40">
+                  <span className="flex items-center gap-1"><Icon name="User" size={11} />{topic.author} · {topic.time}</span>
+                  <span className="flex items-center gap-1">
+                    <Icon name="MessageCircle" size={11} />
+                    {topic.replies.length}
+                    {topic.hasFile && <><Icon name="Paperclip" size={11} className="ml-2" /><span className="text-blue-400/70">файл</span></>}
+                  </span>
+                </div>
+              </button>
+              {isAdmin && (
+                <button onClick={() => deleteTopic(topic.id)} className="absolute top-3 right-3 p-1.5 rounded-lg hover:bg-red-500/15 transition-colors">
+                  <Icon name="Trash2" size={14} color="rgba(239,68,68,0.7)" />
+                </button>
+              )}
+            </div>
           ))}
         </div>
       </div>
