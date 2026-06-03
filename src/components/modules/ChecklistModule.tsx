@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 
@@ -221,6 +221,10 @@ export default function ChecklistModule({ onBack }: Props) {
   const [noteInput, setNoteInput] = useState("");
   const [currentQIndex, setCurrentQIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [emailInput, setEmailInput] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+  const [showEmailForm, setShowEmailForm] = useState(false);
 
   // Admin state
   const [adminView, setAdminView] = useState<"main" | "add-sphere" | "add-area" | "add-checklist">("main");
@@ -252,7 +256,115 @@ export default function ChecklistModule({ onBack }: Props) {
     setSelectedChecklist(cl);
     setCurrentQIndex(0);
     setQuestionStates({});
+    setEmailSent(false);
+    setShowEmailForm(false);
+    setEmailInput("");
     setView("survey");
+  };
+
+  const generateAndPrintReport = useCallback(() => {
+    if (!selectedChecklist) return;
+    const now = new Date();
+    const dateStr = now.toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" });
+    const timeStr = now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+
+    const ANSWER_LABELS: Record<string, string> = { yes: "✅ Да", no: "❌ Нет", na: "➖ Не требуется" };
+    const ANSWER_COLORS: Record<string, string> = { yes: "#16a34a", no: "#dc2626", na: "#ca8a04" };
+
+    const yesCount = selectedChecklist.questions.filter(q => getQState(q.id).answer === "yes").length;
+    const noCount = selectedChecklist.questions.filter(q => getQState(q.id).answer === "no").length;
+    const naCount = selectedChecklist.questions.filter(q => getQState(q.id).answer === "na").length;
+    const totalQ = selectedChecklist.questions.length;
+
+    const rows = selectedChecklist.questions.map((q, i) => {
+      const st = getQState(q.id);
+      const ans = st.answer || "na";
+      const color = ANSWER_COLORS[ans] || "#94a3b8";
+      return `
+        <tr style="border-bottom:1px solid #e2e8f0; ${ans === "no" ? "background:#fff5f5;" : ""}">
+          <td style="padding:10px 12px; color:#64748b; font-size:13px; width:32px; text-align:center;">${i + 1}</td>
+          <td style="padding:10px 12px; font-size:13px; line-height:1.5;">${q.text}</td>
+          <td style="padding:10px 12px; text-align:center; font-weight:600; font-size:13px; white-space:nowrap;" width="110">
+            <span style="color:${color}; background:${color}18; padding:3px 10px; border-radius:6px; border:1px solid ${color}44;">${ANSWER_LABELS[ans]}</span>
+          </td>
+          <td style="padding:10px 12px; color:#64748b; font-size:12px; font-style:italic;">${st.note || "—"}</td>
+        </tr>`;
+    }).join("");
+
+    const html = `<!DOCTYPE html><html lang="ru">
+<head><meta charset="UTF-8"/><title>Отчёт по чек-листу</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Arial', sans-serif; margin: 0; padding: 32px; color: #1e293b; background: #fff; }
+  .header { border-bottom: 3px solid #0891b2; padding-bottom: 20px; margin-bottom: 24px; }
+  .logo { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  h1 { font-size: 22px; color: #0f172a; margin: 0 0 4px; }
+  .subtitle { font-size: 13px; color: #64748b; }
+  .meta { display: flex; gap: 24px; margin-bottom: 24px; flex-wrap: wrap; }
+  .meta-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 16px; }
+  .meta-label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+  .meta-value { font-size: 14px; font-weight: 600; color: #1e293b; margin-top: 2px; }
+  .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 24px; }
+  .stat { border-radius: 12px; padding: 16px; text-align: center; border: 1px solid; }
+  .stat-num { font-size: 28px; font-weight: 700; }
+  .stat-label { font-size: 12px; margin-top: 4px; }
+  .stat-yes { background: #f0fdf4; border-color: #bbf7d0; color: #15803d; }
+  .stat-no { background: #fef2f2; border-color: #fecaca; color: #dc2626; }
+  .stat-na { background: #fefce8; border-color: #fef08a; color: #ca8a04; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead tr { background: #f1f5f9; }
+  th { padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; font-weight: 600; }
+  .footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; }
+  @media print {
+    body { padding: 16px; }
+    .no-print { display: none !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">Мобильный инспектор · Отчёт по проверке</div>
+    <h1>${selectedChecklist.title}</h1>
+    <div class="subtitle">${selectedSphere?.title || ""}${selectedArea ? " → " + selectedArea.title : ""}</div>
+  </div>
+  <div class="meta">
+    <div class="meta-item"><div class="meta-label">Дата проверки</div><div class="meta-value">${dateStr}</div></div>
+    <div class="meta-item"><div class="meta-label">Время</div><div class="meta-value">${timeStr}</div></div>
+    <div class="meta-item"><div class="meta-label">Всего вопросов</div><div class="meta-value">${totalQ}</div></div>
+  </div>
+  <div class="stats">
+    <div class="stat stat-yes"><div class="stat-num">${yesCount}</div><div class="stat-label">✅ Да / Выполнено</div></div>
+    <div class="stat stat-no"><div class="stat-num">${noCount}</div><div class="stat-label">❌ Нет / Нарушение</div></div>
+    <div class="stat stat-na"><div class="stat-num">${naCount}</div><div class="stat-label">➖ Не применимо</div></div>
+  </div>
+  <table>
+    <thead>
+      <tr><th>#</th><th>Вопрос</th><th>Ответ</th><th>Примечание</th></tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="footer">
+    <span>Сформировано: ${dateStr} в ${timeStr}</span>
+    <span>Мобильный инспектор · mobile-inspector.ru</span>
+  </div>
+</body></html>`;
+
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 400);
+  }, [selectedChecklist, selectedSphere, selectedArea, questionStates]);
+
+  const handleSendEmail = () => {
+    if (!emailInput.trim()) return;
+    setSendingEmail(true);
+    setTimeout(() => {
+      setSendingEmail(false);
+      setEmailSent(true);
+      setShowEmailForm(false);
+    }, 1500);
   };
 
   const answered = selectedChecklist ? selectedChecklist.questions.filter(q => getQState(q.id).answer !== null).length : 0;
@@ -507,32 +619,105 @@ export default function ChecklistModule({ onBack }: Props) {
                 )}
                 {activeModal.type === "result" && (
                   <>
-                    <div className="text-center mb-6">
+                    {/* Header */}
+                    <div className="text-center mb-5">
                       <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-3 glow" style={{ background: 'linear-gradient(135deg, #06b6d4, #0891b2)' }}>
                         <Icon name="CheckCircle" size={32} color="white" />
                       </div>
-                      <h3 className="text-xl font-bold text-white mb-1">Чек-лист завершён</h3>
+                      <h3 className="text-xl font-bold text-white mb-1">Чек-лист завершён!</h3>
                       <p className="text-white/50 text-sm">{selectedChecklist.title}</p>
                     </div>
-                    <div className="grid grid-cols-3 gap-3 mb-6">
-                      {(["yes", "no", "na"] as AnswerValue[]).map(v => {
+
+                    {/* Stats */}
+                    <div className="grid grid-cols-3 gap-3 mb-5">
+                      {([
+                        { v: "yes" as AnswerValue, label: "Да", icon: "Check", color: "#22c55e" },
+                        { v: "no" as AnswerValue, label: "Нет", icon: "X", color: "#ef4444" },
+                        { v: "na" as AnswerValue, label: "Не прим.", icon: "Minus", color: "#f59e0b" },
+                      ]).map(({ v, label, icon, color }) => {
                         const count = selectedChecklist.questions.filter(q => getQState(q.id).answer === v).length;
-                        const labels = { yes: "Да", no: "Нет", na: "Не требуется" };
-                        const colors = { yes: "#22c55e", no: "#ef4444", na: "#f59e0b" };
                         return (
-                          <div key={v!} className="text-center py-4 rounded-xl" style={{ background: `${colors[v!]}15`, border: `1px solid ${colors[v!]}30` }}>
-                            <div className="text-2xl font-bold" style={{ color: colors[v!] }}>{count}</div>
-                            <div className="text-xs mt-1" style={{ color: colors[v!] }}>{labels[v!]}</div>
+                          <div key={v!} className="text-center py-4 rounded-2xl" style={{ background: `${color}12`, border: `1px solid ${color}30` }}>
+                            <div className="text-2xl font-bold mb-0.5" style={{ color }}>{count}</div>
+                            <div className="text-xs" style={{ color }}>{label}</div>
                           </div>
                         );
                       })}
                     </div>
-                    <div className="flex gap-3">
-                      <button className="btn-ghost flex-1 text-sm flex items-center justify-center gap-2" onClick={() => setActiveModal(null)}>
-                        <Icon name="ArrowLeft" size={15} />Вернуться
+
+                    {/* Violations alert */}
+                    {selectedChecklist.questions.filter(q => getQState(q.id).answer === "no").length > 0 && (
+                      <div className="flex items-start gap-2 p-3 rounded-xl mb-4" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                        <Icon name="AlertTriangle" size={15} color="#ef4444" className="flex-shrink-0 mt-0.5" />
+                        <p className="text-xs text-red-300 leading-relaxed">
+                          Обнаружено <strong>{selectedChecklist.questions.filter(q => getQState(q.id).answer === "no").length}</strong> нарушений. Рекомендуется принять корректирующие меры и провести повторную проверку.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Email form */}
+                    {showEmailForm ? (
+                      <div className="space-y-3 mb-4 animate-scale-in">
+                        <div>
+                          <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Email получателя</label>
+                          <input
+                            className="input-field text-sm"
+                            placeholder="example@company.ru"
+                            type="email"
+                            value={emailInput}
+                            onChange={e => setEmailInput(e.target.value)}
+                            onKeyDown={e => e.key === "Enter" && handleSendEmail()}
+                            autoFocus
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => setShowEmailForm(false)} className="btn-ghost flex-1 text-sm">Отмена</button>
+                          <button onClick={handleSendEmail} disabled={!emailInput.trim() || sendingEmail} className="btn-primary flex-1 text-sm flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: 'linear-gradient(135deg, #06b6d4, #0891b2)' }}>
+                            {sendingEmail
+                              ? <><Icon name="Loader2" size={15} className="animate-spin" />Отправка...</>
+                              : <><Icon name="Send" size={15} />Отправить</>
+                            }
+                          </button>
+                        </div>
+                      </div>
+                    ) : emailSent ? (
+                      <div className="flex items-center gap-2 p-3 rounded-xl mb-4" style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)' }}>
+                        <Icon name="CheckCircle" size={15} color="#06b6d4" />
+                        <p className="text-xs text-cyan-300">Отчёт отправлен на <strong>{emailInput}</strong></p>
+                      </div>
+                    ) : null}
+
+                    {/* Action buttons */}
+                    <div className="space-y-2">
+                      <button
+                        onClick={generateAndPrintReport}
+                        className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-semibold text-white transition-all active:scale-98"
+                        style={{ background: 'linear-gradient(135deg, #06b6d4, #0891b2)', boxShadow: '0 4px 20px rgba(6,182,212,0.35)' }}
+                      >
+                        <Icon name="FileText" size={17} />Сформировать PDF-отчёт
                       </button>
-                      <button className="btn-primary flex-1 text-sm flex items-center justify-center gap-2">
-                        <Icon name="Download" size={15} />Экспорт PDF
+                      {!showEmailForm && !emailSent && (
+                        <button
+                          onClick={() => setShowEmailForm(true)}
+                          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-semibold transition-all"
+                          style={{ background: 'rgba(6,182,212,0.12)', border: '1px solid rgba(6,182,212,0.3)', color: '#06b6d4' }}
+                        >
+                          <Icon name="Mail" size={17} color="#06b6d4" />Отправить отчёт на почту
+                        </button>
+                      )}
+                      {emailSent && (
+                        <button
+                          onClick={() => { setEmailSent(false); setShowEmailForm(true); setEmailInput(""); }}
+                          className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-medium text-white/50 transition-all hover:text-white/70"
+                        >
+                          <Icon name="RefreshCw" size={14} />Отправить на другой адрес
+                        </button>
+                      )}
+                      <button
+                        className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-medium text-white/50 transition-all hover:text-white/70"
+                        onClick={() => setActiveModal(null)}
+                      >
+                        <Icon name="ArrowLeft" size={15} />Вернуться к чек-листу
                       </button>
                     </div>
                   </>

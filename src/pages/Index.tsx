@@ -29,7 +29,10 @@ export type AppScreen =
 export interface User {
   phone: string;
   name: string;
-  role: "user" | "admin" | "videoblogger" | "guest";
+  role: "user" | "admin" | "content_maker" | "editor" | "guest";
+  avatar?: string;
+  contentMakerRequestPending?: boolean;
+  editorRequestPending?: boolean;
 }
 
 export default function Index() {
@@ -58,7 +61,7 @@ export default function Index() {
 
       {screen === "dashboard" && <Dashboard user={user!} onNavigate={navigate} />}
       {screen === "video" && <VideoModule onBack={() => navigate("dashboard")} user={user!} />}
-      {screen === "news" && <NewsModule onBack={() => navigate("dashboard")} />}
+      {screen === "news" && <NewsModule onBack={() => navigate("dashboard")} user={user!} />}
       {screen === "documents" && <DocumentsModule onBack={() => navigate("dashboard")} />}
       {screen === "rfp" && <RFPModule onBack={() => navigate("dashboard")} />}
       {screen === "checklists" && <ChecklistModule onBack={() => navigate("dashboard")} />}
