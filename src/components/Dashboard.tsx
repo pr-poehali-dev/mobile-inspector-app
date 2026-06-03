@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { User, AppScreen } from "@/pages/Index";
 import Icon from "@/components/ui/icon";
+import { useApp } from "@/context/AppContext";
 
 interface Props {
   user: User;
@@ -92,6 +93,7 @@ const MODULES = [
 ];
 
 export default function Dashboard({ user, onNavigate }: Props) {
+  const { currentUser, myStats, isAdmin } = useApp();
   const [pinned] = useState<string[]>(["video", "news", "ai"]);
 
   const pinnedMods = MODULES.filter(m => pinned.includes(m.id));
@@ -111,10 +113,21 @@ export default function Dashboard({ user, onNavigate }: Props) {
               <div className="text-sm font-semibold text-white leading-none">Добро пожаловать, {user.name.split(" ")[0]}!</div>
             </div>
           </div>
-          <button onClick={() => onNavigate("profile")} className="relative w-9 h-9 rounded-xl flex items-center justify-center hover:bg-white/10 transition-colors">
-            <Icon name="User" size={18} color="white" />
-            <span className="absolute top-1 right-1 dot-online" />
-          </button>
+          <div className="flex items-center gap-1">
+            {isAdmin && (
+              <button onClick={() => onNavigate("admin")} className="px-3 h-9 rounded-xl flex items-center gap-1.5 transition-colors" style={{ background: 'linear-gradient(135deg, #ef4444, #b91c1c)' }}>
+                <Icon name="ShieldCheck" size={16} color="white" />
+                <span className="text-xs font-semibold text-white">Админ</span>
+              </button>
+            )}
+            <button onClick={() => onNavigate("users")} className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-white/10 transition-colors">
+              <Icon name="Users" size={18} color="white" />
+            </button>
+            <button onClick={() => onNavigate("profile")} className="relative w-9 h-9 rounded-xl flex items-center justify-center hover:bg-white/10 transition-colors overflow-hidden">
+              {currentUser.avatarUrl ? <img src={currentUser.avatarUrl} alt="" className="w-full h-full object-cover rounded-xl" /> : <Icon name="User" size={18} color="white" />}
+              <span className="absolute top-1 right-1 dot-online" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -136,21 +149,31 @@ export default function Dashboard({ user, onNavigate }: Props) {
                 <span className="text-xs text-white/70 font-medium">Онлайн</span>
               </div>
             </div>
-            <div className="flex gap-4 mt-4 relative z-10">
-              <div className="text-center">
-                <div className="text-lg font-bold text-white">3</div>
-                <div className="text-white/50 text-xs">Задачи</div>
-              </div>
-              <div className="w-px bg-white/10" />
-              <div className="text-center">
-                <div className="text-lg font-bold text-white">7</div>
-                <div className="text-white/50 text-xs">Новостей</div>
-              </div>
-              <div className="w-px bg-white/10" />
-              <div className="text-center">
-                <div className="text-lg font-bold text-white">2</div>
-                <div className="text-white/50 text-xs">Тикета</div>
-              </div>
+            <div className="grid grid-cols-4 gap-2 mt-4 relative z-10">
+              {[
+                { label: "Видео", value: myStats.videos, icon: "Play" },
+                { label: "Новости", value: myStats.news, icon: "Newspaper" },
+                { label: "Подписки", value: currentUser.subscriptions.length, icon: "UserPlus" },
+                { label: "Подписчики", value: currentUser.subscribers.length, icon: "Users" },
+              ].map(s => (
+                <div key={s.label} className="text-center rounded-xl py-2" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                  <div className="text-lg font-bold text-white">{s.value}</div>
+                  <div className="text-white/50 text-xs">{s.label}</div>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-4 gap-2 mt-2 relative z-10">
+              {[
+                { label: "Курсы", value: myStats.courses },
+                { label: "Тикеты", value: myStats.tickets },
+                { label: "Документы", value: myStats.documents },
+                { label: "Чек-листы", value: myStats.checklists },
+              ].map(s => (
+                <div key={s.label} className="text-center rounded-xl py-2" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                  <div className="text-lg font-bold text-white">{s.value}</div>
+                  <div className="text-white/50 text-xs">{s.label}</div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

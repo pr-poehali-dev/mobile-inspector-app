@@ -6,7 +6,9 @@ interface Props {
   onLogin: (user: User) => void;
 }
 
-type Step = "phone" | "otp" | "consent";
+type Step = "phone" | "otp" | "consent" | "admin";
+
+const ADMIN_PHONE_DIGITS = "79682619505";
 
 const LEGAL_DOCS = [
   {
@@ -123,6 +125,11 @@ export default function AuthScreen({ onLogin }: Props) {
     setTimeout(() => { setLoading(false); setStep("otp"); }, 1000);
   };
 
+  const handleAdminLogin = () => {
+    if (phone !== ADMIN_PHONE_DIGITS) return;
+    onLogin({ phone, name: "Администратор", role: "admin" });
+  };
+
   const handleOtpChange = (i: number, val: string) => {
     if (!/^\d*$/.test(val)) return;
     const newOtp = [...otp];
@@ -198,11 +205,11 @@ export default function AuthScreen({ onLogin }: Props) {
       <div className="bg-orb w-60 h-60 opacity-15" style={{ background: 'radial-gradient(circle, #7c3aed, transparent)', bottom: '-40px', right: '-40px' }} />
 
       <div className="w-full max-w-sm relative z-10">
-        {/* Logo */}
+        {/* Logo — tap to reveal admin login */}
         <div className="text-center mb-8 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 glow" style={{ background: 'linear-gradient(135deg, #1b6fff, #0040cc)' }}>
+          <button onClick={() => setStep("admin")} className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 glow transition-transform active:scale-90" style={{ background: 'linear-gradient(135deg, #1b6fff, #0040cc)' }}>
             <Icon name="Shield" size={30} color="white" />
-          </div>
+          </button>
           <h1 className="text-2xl font-bold text-white" style={{ fontFamily: 'Montserrat, sans-serif' }}>
             Мобильный инспектор
           </h1>
@@ -211,6 +218,41 @@ export default function AuthScreen({ onLogin }: Props) {
 
         {/* Card */}
         <div className="glass-strong rounded-2xl p-6 animate-fade-up opacity-0 delay-150" style={{ animationFillMode: 'forwards' }}>
+
+          {step === "admin" && (
+            <div className="space-y-5 animate-scale-in">
+              <div>
+                <button onClick={() => setStep("phone")} className="flex items-center gap-1 text-white/50 text-sm mb-3 hover:text-white/80 transition-colors">
+                  <Icon name="ArrowLeft" size={16} /> Обычный вход
+                </button>
+                <div className="flex items-center gap-2 mb-1">
+                  <Icon name="ShieldCheck" size={20} color="#ef4444" />
+                  <h2 className="text-xl font-bold text-white">Вход администратора</h2>
+                </div>
+                <p className="text-white/50 text-sm">Введите служебный номер для входа без кода</p>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Номер администратора</label>
+                <input
+                  className="input-field"
+                  type="tel"
+                  placeholder="+7 (___) ___-__-__"
+                  value={formatPhone(phone)}
+                  onChange={handlePhoneInput}
+                  onKeyDown={e => e.key === "Enter" && handleAdminLogin()}
+                  autoFocus
+                />
+              </div>
+              <button
+                className="btn-primary flex items-center justify-center gap-2"
+                onClick={handleAdminLogin}
+                disabled={phone !== ADMIN_PHONE_DIGITS}
+                style={{ background: phone === ADMIN_PHONE_DIGITS ? 'linear-gradient(135deg, #ef4444, #b91c1c)' : undefined }}
+              >
+                <Icon name="LogIn" size={18} />Войти как админ
+              </button>
+            </div>
+          )}
 
           {step === "phone" && (
             <div className="space-y-5">

@@ -11,6 +11,9 @@ import LearningModule from "@/components/modules/LearningModule";
 import SupportModule from "@/components/modules/SupportModule";
 import AIModule from "@/components/modules/AIModule";
 import ProfileScreen from "@/components/ProfileScreen";
+import AdminPanel from "@/components/AdminPanel";
+import UsersScreen from "@/components/UsersScreen";
+import { AppProvider, AppUser, ADMIN_PHONE } from "@/context/AppContext";
 
 export type AppScreen =
   | "auth"
@@ -24,34 +27,41 @@ export type AppScreen =
   | "learning"
   | "support"
   | "ai"
-  | "profile";
+  | "profile"
+  | "admin"
+  | "users";
 
 export interface User {
   phone: string;
   name: string;
-  role: "user" | "admin" | "content_maker" | "editor" | "guest";
+  role: "user" | "admin" | "content_maker" | "editor" | "documentor" | "guest";
   avatar?: string;
   contentMakerRequestPending?: boolean;
   editorRequestPending?: boolean;
 }
 
-export default function Index() {
-  const [screen, setScreen] = useState<AppScreen>("auth");
-  const [user, setUser] = useState<User | null>(null);
-
-  const handleLogin = (u: User) => {
-    setUser(u);
-    setScreen("dashboard");
+function makeAppUser(u: User): AppUser {
+  const isAdmin = u.phone === ADMIN_PHONE || u.role === "admin";
+  return {
+    id: 1,
+    phone: u.phone,
+    name: u.name,
+    email: "ivan@mail.ru",
+    location: "Москва",
+    avatar: u.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(),
+    roles: isAdmin ? ["admin"] : [u.role],
+    blocked: false,
+    bannedFromForum: false,
+    subscribers: [2, 3],
+    subscriptions: [4],
+    bio: "",
+    createdAt: new Date().toLocaleDateString("ru-RU"),
   };
+}
 
-  const handleLogout = () => {
-    setUser(null);
-    setScreen("auth");
-  };
-
+function AppShell({ user, onLogout }: { user: User; onLogout: () => void }) {
+  const [screen, setScreen] = useState<AppScreen>("dashboard");
   const navigate = (s: AppScreen) => setScreen(s);
-
-  if (screen === "auth") return <AuthScreen onLogin={handleLogin} />;
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -59,9 +69,9 @@ export default function Index() {
       <div className="bg-orb w-80 h-80 opacity-15" style={{ background: 'radial-gradient(circle, #7c3aed, transparent)', bottom: '10%', right: '-80px' }} />
       <div className="bg-orb w-64 h-64 opacity-10" style={{ background: 'radial-gradient(circle, #0ea5e9, transparent)', top: '50%', left: '40%' }} />
 
-      {screen === "dashboard" && <Dashboard user={user!} onNavigate={navigate} />}
-      {screen === "video" && <VideoModule onBack={() => navigate("dashboard")} user={user!} />}
-      {screen === "news" && <NewsModule onBack={() => navigate("dashboard")} user={user!} />}
+      {screen === "dashboard" && <Dashboard user={user} onNavigate={navigate} />}
+      {screen === "video" && <VideoModule onBack={() => navigate("dashboard")} user={user} />}
+      {screen === "news" && <NewsModule onBack={() => navigate("dashboard")} user={user} />}
       {screen === "documents" && <DocumentsModule onBack={() => navigate("dashboard")} />}
       {screen === "rfp" && <RFPModule onBack={() => navigate("dashboard")} />}
       {screen === "checklists" && <ChecklistModule onBack={() => navigate("dashboard")} />}
@@ -69,7 +79,24 @@ export default function Index() {
       {screen === "learning" && <LearningModule onBack={() => navigate("dashboard")} />}
       {screen === "support" && <SupportModule onBack={() => navigate("dashboard")} />}
       {screen === "ai" && <AIModule onBack={() => navigate("dashboard")} />}
-      {screen === "profile" && <ProfileScreen user={user!} onBack={() => navigate("dashboard")} onLogout={handleLogout} />}
+      {screen === "profile" && <ProfileScreen onBack={() => navigate("dashboard")} onLogout={onLogout} onNavigate={navigate} />}
+      {screen === "admin" && <AdminPanel onBack={() => navigate("dashboard")} />}
+      {screen === "users" && <UsersScreen onBack={() => navigate("dashboard")} />}
     </div>
+  );
+}
+
+export default function Index() {
+  const [user, setUser] = useState<User | null>(null);
+
+  const handleLogin = (u: User) => setUser(u);
+  const handleLogout = () => setUser(null);
+
+  if (!user) return <AuthScreen onLogin={handleLogin} />;
+
+  return (
+    <AppProvider initialUser={makeAppUser(user)}>
+      <AppShell user={user} onLogout={handleLogout} />
+    </AppProvider>
   );
 }
