@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
+import AdminBlockButton from "@/components/AdminBlockButton";
 import { useApp } from "@/context/AppContext";
 
 interface Props { onBack: () => void; }
@@ -64,7 +65,7 @@ type TabType = "all" | "favorites";
 type ViewType = "feed" | "player" | "channel" | "add" | "request" | "admin_requests" | "studio";
 
 export default function VideoModule({ onBack }: Props) {
-  const { currentUser, hasRole, isAdmin, categories, addRoleRequest, roleRequests, resolveRoleRequest, toggleSubscription, bumpStat } = useApp();
+  const { currentUser, hasRole, isAdmin, categories, addRoleRequest, roleRequests, resolveRoleRequest, toggleSubscription, bumpStat, isContentBlocked } = useApp();
   const VIDEO_CATEGORIES = ["Все", ...(categories.video || [])];
 
   const [videos, setVideos] = useState<VideoItem[]>(INITIAL_VIDEOS);
@@ -121,13 +122,14 @@ export default function VideoModule({ onBack }: Props) {
 
   const filtered = useMemo(() => {
     let list = tab === "favorites" ? videos.filter(v => favorites.includes(v.id)) : videos;
+    if (!isAdmin) list = list.filter(v => !isContentBlocked("video", v.id));
     if (category !== "Все") list = list.filter(v => v.category === category);
     if (search.trim()) {
       const q = search.toLowerCase().trim();
       list = list.filter(v => v.title.toLowerCase().includes(q) || v.description.toLowerCase().includes(q) || v.hashtags.some(h => h.toLowerCase().includes(q)) || v.author.name.toLowerCase().includes(q));
     }
     return list;
-  }, [videos, tab, category, search, favorites]);
+  }, [videos, tab, category, search, favorites, isAdmin, isContentBlocked]);
 
   const channelVideos = useMemo(() => channelAuthor ? videos.filter(v => v.author.id === channelAuthor.id) : [], [videos, channelAuthor]);
   const myVideos = useMemo(() => videos.filter(v => v.author.id === myAuthorId), [videos]);
@@ -441,11 +443,12 @@ interface CardProps {
 function VideoCard({ video, isFav, onToggleFav, onPlay, onAuthorClick, onHashtagClick, animDelay = 0 }: CardProps) {
   return (
     <div className="rounded-2xl overflow-hidden animate-fade-up opacity-0 transition-all" style={{ animationDelay: `${animDelay}s`, animationFillMode: 'forwards', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-      <button onClick={onPlay} className="w-full relative block" style={{ aspectRatio: '16/7', background: video.thumbnail }}>
-        <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.3)' }}><div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}><Icon name="Play" size={18} color="white" /></div></div>
-        <span className="absolute bottom-2 right-2 text-xs text-white font-mono px-2 py-0.5 rounded-lg" style={{ background: 'rgba(0,0,0,0.65)' }}>{video.duration}</span>
-        <span className="absolute top-2 left-2 text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.85)' }}>{video.category.split(" ")[0]}</span>
-      </button>
+      <div className="w-full relative" style={{ aspectRatio: '16/7', background: video.thumbnail }}>
+        <button onClick={onPlay} className="absolute inset-0 flex items-center justify-center w-full" style={{ background: 'rgba(0,0,0,0.3)' }}><div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}><Icon name="Play" size={18} color="white" /></div></button>
+        <span className="absolute bottom-2 right-2 text-xs text-white font-mono px-2 py-0.5 rounded-lg pointer-events-none" style={{ background: 'rgba(0,0,0,0.65)' }}>{video.duration}</span>
+        <span className="absolute top-2 left-2 text-xs px-2 py-0.5 rounded-lg font-medium pointer-events-none" style={{ background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.85)' }}>{video.category.split(" ")[0]}</span>
+        <div className="absolute top-2 right-2"><AdminBlockButton kind="video" id={video.id} authorId={video.author.id} /></div>
+      </div>
       <div className="p-3">
         <button onClick={onPlay} className="text-sm font-semibold text-white text-left leading-snug mb-2 hover:text-red-300 transition-colors block w-full">{video.title}</button>
         <div className="flex flex-wrap gap-1.5 mb-2">

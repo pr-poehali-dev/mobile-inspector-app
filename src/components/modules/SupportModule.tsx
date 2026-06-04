@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
+import { useApp } from "@/context/AppContext";
 
 interface Props { onBack: () => void; }
 
@@ -26,6 +27,7 @@ const TICKETS = [
 ];
 
 export default function SupportModule({ onBack }: Props) {
+  const { addSupportMessage } = useApp();
   const [view, setView] = useState<"list" | "create" | "ticket">("list");
   const [tickets, setTickets] = useState(TICKETS.map(t => ({ ...t, comments: [...t.comments] })));
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -57,6 +59,7 @@ export default function SupportModule({ onBack }: Props) {
       comments: [] as { author: string; text: string; time: string }[],
     };
     setTickets(prev => [newTicket, ...prev]);
+    addSupportMessage(form.title, form.desc);
     setForm({ title: "", desc: "", priority: "Средний" });
     setAttachedFile(null);
     setView("list");

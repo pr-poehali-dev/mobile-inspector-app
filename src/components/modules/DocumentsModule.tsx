@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
+import AdminBlockButton from "@/components/AdminBlockButton";
 import { useApp } from "@/context/AppContext";
 
 interface Props { onBack: () => void; }
@@ -56,7 +57,7 @@ const INITIAL_DOCS: DocItem[] = [
 type ViewMode = "list" | "viewer" | "add" | "cabinet" | "request" | "requisites";
 
 export default function DocumentsModule({ onBack }: Props) {
-  const { currentUser, hasRole, isAdmin, categories, addRoleRequest, bumpStat } = useApp();
+  const { currentUser, hasRole, isAdmin, categories, addRoleRequest, bumpStat, isContentBlocked } = useApp();
   const CATEGORIES = ["Все", ...(categories.documents || [])];
 
   const [docs, setDocs] = useState<DocItem[]>(INITIAL_DOCS);
@@ -75,7 +76,7 @@ export default function DocumentsModule({ onBack }: Props) {
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
 
   const myDocs = useMemo(() => docs.filter(d => d.ownerId === currentUser.id), [docs, currentUser.id]);
-  const filtered = docs.filter(d => (catFilter === "Все" || d.category === catFilter) && (dirFilter === "Все" || d.direction === dirFilter) && d.name.toLowerCase().includes(search.toLowerCase()));
+  const filtered = docs.filter(d => (isAdmin || !isContentBlocked("document", d.id)) && (catFilter === "Все" || d.category === catFilter) && (dirFilter === "Все" || d.direction === dirFilter) && d.name.toLowerCase().includes(search.toLowerCase()));
 
   const saveDoc = () => {
     if (!addForm.name.trim()) return;
@@ -269,23 +270,25 @@ export default function DocumentsModule({ onBack }: Props) {
         {filtered.map((doc, i) => {
           const fi = FILE_ICONS[doc.type] || { icon: "File", color: "#94a3b8" };
           return (
-            <button key={doc.id} onClick={() => { setSelected(doc); setView("viewer"); }} className="w-full text-left glass rounded-2xl p-4 animate-fade-up opacity-0 hover:border-white/20 transition-all" style={{ animationDelay: `${i * 0.05}s`, animationFillMode: 'forwards' }}>
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${fi.color}15`, border: `1px solid ${fi.color}30` }}><Icon name={fi.icon} size={20} color={fi.color} /></div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white leading-snug mb-1">{doc.name}</p>
-                  <div className="flex flex-wrap gap-2 text-xs text-white/40">
-                    <span className="flex items-center gap-1"><Icon name="User" size={11} />{doc.ownerName}</span>
-                    <span className="flex items-center gap-1"><Icon name="Calendar" size={11} />{doc.date}</span>
-                  </div>
-                  <div className="flex gap-2 mt-1.5 items-center">
-                    <span className="tag text-xs">{doc.category}</span>
-                    {doc.paid ? <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>{doc.price} ₽</span> : <span className="text-xs px-2 py-0.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>Бесплатно</span>}
+            <div key={doc.id} className="relative w-full glass rounded-2xl p-4 animate-fade-up opacity-0 hover:border-white/20 transition-all" style={{ animationDelay: `${i * 0.05}s`, animationFillMode: 'forwards' }}>
+              <button onClick={() => { setSelected(doc); setView("viewer"); }} className="w-full text-left">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${fi.color}15`, border: `1px solid ${fi.color}30` }}><Icon name={fi.icon} size={20} color={fi.color} /></div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white leading-snug mb-1 pr-8">{doc.name}</p>
+                    <div className="flex flex-wrap gap-2 text-xs text-white/40">
+                      <span className="flex items-center gap-1"><Icon name="User" size={11} />{doc.ownerName}</span>
+                      <span className="flex items-center gap-1"><Icon name="Calendar" size={11} />{doc.date}</span>
+                    </div>
+                    <div className="flex gap-2 mt-1.5 items-center">
+                      <span className="tag text-xs">{doc.category}</span>
+                      {doc.paid ? <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>{doc.price} ₽</span> : <span className="text-xs px-2 py-0.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>Бесплатно</span>}
+                    </div>
                   </div>
                 </div>
-                <Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.2)" className="self-center" />
-              </div>
-            </button>
+              </button>
+              <div className="absolute top-3 right-3"><AdminBlockButton kind="document" id={doc.id} authorId={doc.ownerId} size={13} /></div>
+            </div>
           );
         })}
         {filtered.length === 0 && <div className="text-center py-14"><Icon name="FolderX" size={32} color="rgba(255,255,255,0.2)" className="mx-auto mb-3" /><p className="text-white/30 text-sm">Документы не найдены</p></div>}

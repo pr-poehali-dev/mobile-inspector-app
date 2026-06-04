@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
+import AdminBlockButton from "@/components/AdminBlockButton";
 import { useApp } from "@/context/AppContext";
 
 interface Props { onBack: () => void; }
@@ -58,7 +59,7 @@ const INITIAL_NEWS: NewsItem[] = [
 type ViewMode = "list" | "detail" | "add" | "blog" | "blog_settings" | "request";
 
 export default function NewsModule({ onBack }: Props) {
-  const { currentUser, users, hasRole, isAdmin, categories, addRoleRequest, bumpStat } = useApp();
+  const { currentUser, users, hasRole, isAdmin, categories, addRoleRequest, bumpStat, isContentBlocked } = useApp();
   const NEWS_CATEGORIES = ["Все", ...(categories.news || [])];
 
   const [news, setNews] = useState<NewsItem[]>(INITIAL_NEWS);
@@ -84,6 +85,7 @@ export default function NewsModule({ onBack }: Props) {
 
   const filtered = useMemo(() => {
     let list = news.filter(n => n.status === "published");
+    if (!isAdmin) list = list.filter(n => !isContentBlocked("news", n.id));
     if (category !== "Все") list = list.filter(n => n.category === category);
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -291,24 +293,27 @@ export default function NewsModule({ onBack }: Props) {
         )}
         {filtered.length > 0
           ? filtered.map((item, i) => (
-            <button key={item.id} onClick={() => { setSelected(item); setView("detail"); }} className="w-full text-left glass rounded-2xl overflow-hidden animate-fade-up opacity-0 hover:border-white/20 transition-all" style={{ animationDelay: `${i * 0.05}s`, animationFillMode: 'forwards' }}>
-              <div className="relative" style={{ background: item.image, height: '80px' }}>
-                <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.25)' }} />
-                <div className="absolute top-2 left-2 flex gap-2">
-                  <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: `${getCatColor(item.category)}90`, color: 'white' }}>{item.category.split(" ")[0]}</span>
-                  {item.important && <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: 'rgba(239,68,68,0.85)', color: 'white' }}>Важно</span>}
+            <div key={item.id} className="relative w-full glass rounded-2xl overflow-hidden animate-fade-up opacity-0 hover:border-white/20 transition-all" style={{ animationDelay: `${i * 0.05}s`, animationFillMode: 'forwards' }}>
+              <button onClick={() => { setSelected(item); setView("detail"); }} className="w-full text-left">
+                <div className="relative" style={{ background: item.image, height: '80px' }}>
+                  <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.25)' }} />
+                  <div className="absolute top-2 left-2 flex gap-2">
+                    <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: `${getCatColor(item.category)}90`, color: 'white' }}>{item.category.split(" ")[0]}</span>
+                    {item.important && <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: 'rgba(239,68,68,0.85)', color: 'white' }}>Важно</span>}
+                  </div>
                 </div>
-              </div>
-              <div className="p-3">
-                <h3 className="text-sm font-semibold text-white mb-2 leading-snug">{item.title}</h3>
-                <p className="text-xs text-white/50 line-clamp-2 mb-2">{item.text}</p>
-                <div className="flex items-center gap-3 text-xs text-white/30">
-                  <span className="flex items-center gap-1"><Icon name="User" size={10} />{item.authorName}</span>
-                  <span className="flex items-center gap-1"><Icon name="Calendar" size={10} />{item.date}</span>
-                  <Icon name="ChevronRight" size={14} color="rgba(255,255,255,0.2)" className="ml-auto" />
+                <div className="p-3">
+                  <h3 className="text-sm font-semibold text-white mb-2 leading-snug">{item.title}</h3>
+                  <p className="text-xs text-white/50 line-clamp-2 mb-2">{item.text}</p>
+                  <div className="flex items-center gap-3 text-xs text-white/30">
+                    <span className="flex items-center gap-1"><Icon name="User" size={10} />{item.authorName}</span>
+                    <span className="flex items-center gap-1"><Icon name="Calendar" size={10} />{item.date}</span>
+                    <Icon name="ChevronRight" size={14} color="rgba(255,255,255,0.2)" className="ml-auto" />
+                  </div>
                 </div>
-              </div>
-            </button>
+              </button>
+              <div className="absolute top-2 right-2"><AdminBlockButton kind="news" id={item.id} authorId={item.authorId} size={13} /></div>
+            </div>
           ))
           : <div className="text-center py-14"><Icon name="Newspaper" size={36} color="rgba(255,255,255,0.15)" className="mx-auto mb-3" /><p className="text-white/30 text-sm">Нет новостей по выбранной категории</p></div>
         }

@@ -25,9 +25,55 @@ export interface RoleRequest {
   id: number;
   userId: number;
   userName: string;
+  phone: string;
   role: "content_maker" | "editor" | "documentor";
   date: string;
   status: "pending" | "approved" | "rejected";
+}
+
+export interface RoleGrant {
+  userId: number;
+  role: UserRole;
+  validUntil: string; // дата следующей оплаты
+  grantedAt: string;
+}
+
+export interface AppNotification {
+  id: number;
+  userId: number;
+  text: string;
+  date: string;
+  read: boolean;
+  type: "block" | "info" | "role";
+}
+
+export interface PaymentService {
+  id: number;
+  name: string;
+  requisites: string;
+  qrUrl?: string;
+  instruction: string;
+  price: number;
+  enabled: boolean;
+}
+
+export interface SupportMessage {
+  id: number;
+  userId: number;
+  userName: string;
+  phone: string;
+  subject: string;
+  text: string;
+  date: string;
+  status: "new" | "answered";
+  replies: { from: "user" | "admin"; text: string; date: string }[];
+}
+
+export type ContentKind = "video" | "document" | "news" | "rfp" | "comment" | "photo";
+
+export interface BlockedContentRef {
+  kind: ContentKind;
+  id: number | string;
 }
 
 export interface AppStats {
@@ -58,6 +104,32 @@ interface AppContextType {
   roleRequests: RoleRequest[];
   addRoleRequest: (role: "content_maker" | "editor" | "documentor") => void;
   resolveRoleRequest: (id: number, approve: boolean) => void;
+
+  // role grants (with expiry)
+  roleGrants: RoleGrant[];
+
+  // notifications
+  notifications: AppNotification[];
+  myNotifications: AppNotification[];
+  addNotification: (userId: number, text: string, type?: AppNotification["type"]) => void;
+  markNotificationsRead: () => void;
+
+  // payment services (admin-managed requisites)
+  paymentServices: PaymentService[];
+  addPaymentService: (s: Omit<PaymentService, "id">) => void;
+  updatePaymentService: (id: number, patch: Partial<PaymentService>) => void;
+  removePaymentService: (id: number) => void;
+
+  // support / обращения
+  supportMessages: SupportMessage[];
+  addSupportMessage: (subject: string, text: string) => void;
+  replySupportMessage: (id: number, text: string) => void;
+
+  // content moderation
+  blockedContent: BlockedContentRef[];
+  isContentBlocked: (kind: ContentKind, id: number | string) => boolean;
+  blockContent: (kind: ContentKind, id: number | string, authorId?: number) => void;
+  unblockContent: (kind: ContentKind, id: number | string) => void;
 
   // per-user content counters (live)
   myStats: AppStats;
@@ -109,8 +181,26 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
   });
   const [currentUser, setCurrentUserState] = useState<AppUser>(initialUser);
   const [roleRequests, setRoleRequests] = useState<RoleRequest[]>([
-    { id: 1, userId: 5, userName: "Сергей Смирнов", role: "content_maker", date: "02.06.2026", status: "pending" },
+    { id: 1, userId: 5, userName: "Сергей Смирнов", phone: "79995556677", role: "content_maker", date: "02.06.2026", status: "pending" },
   ]);
+  const [roleGrants, setRoleGrants] = useState<RoleGrant[]>([
+    { userId: 2, role: "content_maker", validUntil: "15.07.2026", grantedAt: "15.06.2026" },
+    { userId: 3, role: "content_maker", validUntil: "20.07.2026", grantedAt: "20.06.2026" },
+    { userId: 3, role: "editor", validUntil: "20.07.2026", grantedAt: "20.06.2026" },
+    { userId: 4, role: "editor", validUntil: "10.07.2026", grantedAt: "10.06.2026" },
+    { userId: 4, role: "documentor", validUntil: "10.07.2026", grantedAt: "10.06.2026" },
+  ]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [paymentServices, setPaymentServices] = useState<PaymentService[]>([
+    { id: 1, name: "Роль «Контентмейкер» (месяц)", requisites: "ООО «Мобильный Инспектор»\nР/с: 40702810000000012345\nБИК: 044525225\nИНН: 7700000000", qrUrl: "", instruction: "Оплатите по реквизитам или QR-коду. В назначении укажите номер телефона и название роли. Доступ активируется в течение 1 часа.", price: 990, enabled: true },
+    { id: 2, name: "Роль «Редактор» (месяц)", requisites: "ООО «Мобильный Инспектор»\nР/с: 40702810000000012345\nБИК: 044525225", qrUrl: "", instruction: "Оплатите по реквизитам. В назначении укажите телефон.", price: 790, enabled: true },
+    { id: 3, name: "Роль «Документовед» (месяц)", requisites: "ООО «Мобильный Инспектор»\nР/с: 40702810000000012345\nБИК: 044525225", qrUrl: "", instruction: "Оплатите по реквизитам. В назначении укажите телефон.", price: 1290, enabled: false },
+  ]);
+  const [supportMessages, setSupportMessages] = useState<SupportMessage[]>([
+    { id: 1, userId: 1, userName: "Иван Петров", phone: "79991112233", subject: "Не приходит SMS-код", text: "Здравствуйте! Не могу войти — код подтверждения не приходит на телефон. Что делать?", date: "03.06.2026 10:14", status: "new", replies: [] },
+    { id: 2, userId: 2, userName: "Анна Козлова", phone: "79992223344", subject: "Вопрос по загрузке видео", text: "Какой максимальный размер файла для загрузки видео?", date: "02.06.2026 16:40", status: "answered", replies: [{ from: "admin", text: "Здравствуйте! Максимальный размер — 2 ГБ.", date: "02.06.2026 17:02" }] },
+  ]);
+  const [blockedContent, setBlockedContent] = useState<BlockedContentRef[]>([]);
   const [myStats, setMyStats] = useState<AppStats>({ videos: 0, news: 0, documents: 12, courses: 2, tickets: 3, checklists: 5 });
   const [categories, setCategories] = useState<Record<string, string[]>>(DEFAULT_CATEGORIES);
   const [theme, setThemeState] = useState<ThemeMode>("dark");
@@ -158,17 +248,50 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
     });
   };
 
+  const addNotification = (userId: number, text: string, type: AppNotification["type"] = "info") => {
+    setNotifications(prev => [{ id: Date.now() + Math.random(), userId, text, date: new Date().toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }), read: false, type }, ...prev]);
+  };
+
   const addRoleRequest = (role: "content_maker" | "editor" | "documentor") => {
-    setRoleRequests(prev => [...prev, { id: Date.now(), userId: currentUser.id, userName: currentUser.name, role, date: new Date().toLocaleDateString("ru-RU"), status: "pending" }]);
+    setRoleRequests(prev => [...prev, { id: Date.now(), userId: currentUser.id, userName: currentUser.name, phone: currentUser.phone, role, date: new Date().toLocaleDateString("ru-RU"), status: "pending" }]);
   };
 
   const resolveRoleRequest = (id: number, approve: boolean) => {
     setRoleRequests(prev => prev.map(r => {
       if (r.id !== id) return r;
-      if (approve) grantRole(r.userId, r.role);
+      if (approve) {
+        grantRole(r.userId, r.role);
+        const validUntil = new Date(Date.now() + 30 * 24 * 3600 * 1000).toLocaleDateString("ru-RU");
+        setRoleGrants(g => [...g.filter(x => !(x.userId === r.userId && x.role === r.role)), { userId: r.userId, role: r.role, validUntil, grantedAt: new Date().toLocaleDateString("ru-RU") }]);
+        addNotification(r.userId, `Вам выдана роль. Доступ активен до ${validUntil}.`, "role");
+      }
       return { ...r, status: approve ? "approved" : "rejected" };
     }));
   };
+
+  const markNotificationsRead = () => setNotifications(prev => prev.map(n => n.userId === currentUser.id ? { ...n, read: true } : n));
+
+  const addPaymentService = (s: Omit<PaymentService, "id">) => setPaymentServices(prev => [...prev, { ...s, id: Date.now() }]);
+  const updatePaymentService = (id: number, patch: Partial<PaymentService>) => setPaymentServices(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
+  const removePaymentService = (id: number) => setPaymentServices(prev => prev.filter(s => s.id !== id));
+
+  const addSupportMessage = (subject: string, text: string) => {
+    setSupportMessages(prev => [{ id: Date.now(), userId: currentUser.id, userName: currentUser.name, phone: currentUser.phone, subject, text, date: new Date().toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }), status: "new", replies: [] }, ...prev]);
+  };
+  const replySupportMessage = (id: number, text: string) => {
+    setSupportMessages(prev => prev.map(m => {
+      if (m.id !== id) return m;
+      addNotification(m.userId, `Ответ от поддержки по обращению «${m.subject}»: ${text}`, "info");
+      return { ...m, status: "answered", replies: [...m.replies, { from: "admin", text, date: new Date().toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) }] };
+    }));
+  };
+
+  const isContentBlocked = (kind: ContentKind, id: number | string) => blockedContent.some(b => b.kind === kind && String(b.id) === String(id));
+  const blockContent = (kind: ContentKind, id: number | string, authorId?: number) => {
+    setBlockedContent(prev => prev.some(b => b.kind === kind && String(b.id) === String(id)) ? prev : [...prev, { kind, id }]);
+    if (authorId) addNotification(authorId, "Ваш контент заблокирован администрацией за нарушение правил платформы.", "block");
+  };
+  const unblockContent = (kind: ContentKind, id: number | string) => setBlockedContent(prev => prev.filter(b => !(b.kind === kind && String(b.id) === String(id))));
 
   const bumpStat = (key: keyof AppStats, delta = 1) => setMyStats(prev => ({ ...prev, [key]: Math.max(0, prev[key] + delta) }));
 
@@ -196,6 +319,13 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
     currentUser, setCurrentUser, updateCurrentUser,
     users, setUsers, toggleBlock, toggleForumBan, grantRole, revokeRole, toggleSubscription,
     roleRequests, addRoleRequest, resolveRoleRequest,
+    roleGrants,
+    notifications,
+    myNotifications: notifications.filter(n => n.userId === currentUser.id),
+    addNotification, markNotificationsRead,
+    paymentServices, addPaymentService, updatePaymentService, removePaymentService,
+    supportMessages, addSupportMessage, replySupportMessage,
+    blockedContent, isContentBlocked, blockContent, unblockContent,
     myStats, bumpStat,
     categories, addCategory, removeCategory,
     theme, setTheme, lang, setLang,

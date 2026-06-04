@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { User, AppScreen } from "@/pages/Index";
 import Icon from "@/components/ui/icon";
+import NotificationBell from "@/components/NotificationBell";
 import { useApp } from "@/context/AppContext";
 
 interface Props {
@@ -120,6 +121,7 @@ export default function Dashboard({ user, onNavigate }: Props) {
                 <span className="text-xs font-semibold text-white">Админ</span>
               </button>
             )}
+            <NotificationBell />
             <button onClick={() => onNavigate("users")} className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-white/10 transition-colors">
               <Icon name="Users" size={18} color="white" />
             </button>
