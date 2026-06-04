@@ -1,228 +1,13 @@
 import { useState, useRef, useCallback } from "react";
-import Icon from "@/components/ui/icon";
-import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
+import {
+  AnswerValue, ChecklistData, Area, Sphere, ViewMode, QuestionState, HistoryRecord, INITIAL_SPHERES,
+} from "./checklist/data";
+import ChecklistAdminView from "./checklist/ChecklistAdminView";
+import ChecklistSurveyView from "./checklist/ChecklistSurveyView";
+import ChecklistBrowseViews from "./checklist/ChecklistBrowseViews";
 
 interface Props { onBack: () => void; }
-
-type AnswerValue = "yes" | "no" | "na" | null;
-
-interface CheckQuestion {
-  id: number;
-  text: string;
-  requirement: string;
-  hint: string;
-}
-
-interface ChecklistData {
-  id: number;
-  title: string;
-  questions: CheckQuestion[];
-}
-
-interface Area {
-  id: number;
-  title: string;
-  checklists: ChecklistData[];
-}
-
-interface Sphere {
-  id: number;
-  title: string;
-  icon: string;
-  color: string;
-  areas: Area[];
-}
-
-const INITIAL_SPHERES: Sphere[] = [
-  {
-    id: 1, title: "Промышленная безопасность", icon: "Factory", color: "#f97316",
-    areas: [
-      {
-        id: 1, title: "Магистральные трубопроводы", checklists: [
-          {
-            id: 1, title: "Проверка технического состояния", questions: [
-              { id: 1, text: "Проведено ли плановое техническое обслуживание трубопровода в установленные сроки?", requirement: "Федеральные нормы и правила в области промышленной безопасности «Правила безопасности для объектов, использующих сжиженные углеводородные газы» (Приказ Ростехнадзора № 521)", hint: "Проверьте журнал технического обслуживания — запись должна быть не старше 30 дней." },
-              { id: 2, text: "Наличие и исправность запорной арматуры на всех узлах трубопровода?", requirement: "ГОСТ 32569-2013. Трубопроводы технологические. Требования к устройству и эксплуатации.", hint: "Осмотрите каждый кран и задвижку — отсутствие течей, свободное открытие/закрытие." },
-              { id: 3, text: "Проведена ли проверка катодной защиты в текущем квартале?", requirement: "ГОСТ Р 51164-98. Трубопроводы стальные магистральные. Защита от коррозии.", hint: "Акт измерения потенциала трубопровода должен быть в наличии." },
-              { id: 4, text: "Установлены ли знаки и предупредительные таблички на трассе трубопровода?", requirement: "РД 39-132-94 «Правила по эксплуатации, ревизии, ремонту и отбраковке нефтепромысловых трубопроводов»", hint: "Знаки устанавливаются через каждые 500 м, у пересечений дорог и водоёмов." },
-              { id: 5, text: "Проведён ли инструктаж персонала, обслуживающего трубопровод?", requirement: "ФЗ №116 «О промышленной безопасности опасных производственных объектов»", hint: "Отметка о проведении инструктажа — в журнале инструктажей по ОТ." },
-            ]
-          }
-        ]
-      },
-      {
-        id: 2, title: "Сосуды под давлением", checklists: [
-          {
-            id: 2, title: "Плановая проверка сосудов", questions: [
-              { id: 1, text: "Имеется ли паспорт сосуда с актуальными записями о техническом освидетельствовании?", requirement: "ФНП «Правила промышленной безопасности при использовании оборудования, работающего под избыточным давлением» (Приказ Ростехнадзора № 536)", hint: "Паспорт должен храниться у ответственного за безопасную эксплуатацию." },
-              { id: 2, text: "Не превышен ли допустимый срок до следующего технического освидетельствования?", requirement: "Приказ Ростехнадзора № 536, п. 401 — наружный осмотр 1 раз в 2 года, гидравлические испытания — 1 раз в 8 лет.", hint: "Дата следующего освидетельствования указана в паспорте сосуда." },
-              { id: 3, text: "Исправны ли предохранительные клапаны и манометры?", requirement: "ГОСТ 12.2.085-2002. Сосуды, работающие под давлением. Предохранительные клапаны.", hint: "Манометр — класс точности не ниже 2.5, пломба или клеймо с датой поверки." },
-            ]
-          }
-        ]
-      },
-      {
-        id: 3, title: "Подъёмные сооружения", checklists: [
-          {
-            id: 3, title: "Проверка грузоподъёмных механизмов", questions: [
-              { id: 1, text: "Проведено ли техническое освидетельствование крана в установленные сроки?", requirement: "ФНП «Правила безопасности опасных производственных объектов, на которых используются подъёмные сооружения» (Приказ Ростехнадзора № 461)", hint: "Частичное освидетельствование — 1 раз в год, полное — 1 раз в 3 года." },
-              { id: 2, text: "Наличие удостоверения у крановщика/стропальщика?", requirement: "Приказ Ростехнадзора № 461, п. 159 — требования к квалификации персонала.", hint: "Удостоверение должно быть действующим, с актуальной отметкой о проверке знаний." },
-            ]
-          }
-        ]
-      },
-    ]
-  },
-  {
-    id: 2, title: "Охрана труда", icon: "HardHat", color: "#eab308",
-    areas: [
-      {
-        id: 4, title: "Организация рабочих мест", checklists: [
-          {
-            id: 4, title: "Проверка рабочего места", questions: [
-              { id: 1, text: "Обеспечены ли работники средствами индивидуальной защиты?", requirement: "Приказ Минтруда России № 767н «Об утверждении Единых типовых норм выдачи СИЗ»", hint: "СИЗ выдаются по нормам, карточки учёта хранятся в отделе охраны труда." },
-              { id: 2, text: "Проведён ли специальная оценка условий труда (СОУТ)?", requirement: "Федеральный закон № 426-ФЗ «О специальной оценке условий труда»", hint: "СОУТ проводится не реже 1 раза в 5 лет. Карты СОУТ должны быть на рабочих местах." },
-              { id: 3, text: "Оформлены ли инструкции по охране труда по каждой профессии?", requirement: "Приказ Минтруда России № 772н «Об утверждении основных требований к порядку разработки инструкций по охране труда»", hint: "Инструкции пересматриваются не реже 1 раза в 5 лет или при изменении условий труда." },
-            ]
-          }
-        ]
-      }
-    ]
-  },
-  {
-    id: 3, title: "Пожарная безопасность", icon: "Flame", color: "#ef4444",
-    areas: [
-      {
-        id: 5, title: "Первичные средства пожаротушения", checklists: [
-          {
-            id: 5, title: "Проверка огнетушителей", questions: [
-              { id: 1, text: "Проведена ли своевременная перезарядка огнетушителей?", requirement: "ППР в РФ (Постановление Правительства № 1479), п. 60 — проверка огнетушителей не реже 1 раза в год.", hint: "На огнетушителе должна быть бирка с датой последней проверки и перезарядки." },
-              { id: 2, text: "Установлены ли огнетушители на видных и доступных местах?", requirement: "СП 9.13130.2009. Техника пожарная. Огнетушители. Требования к эксплуатации.", hint: "Огнетушители вешаются на высоте не более 1.5 м от уровня пола, знаки — по ГОСТ 12.4.026." },
-              { id: 3, text: "Обозначены ли пути эвакуации и аварийные выходы?", requirement: "ГОСТ 12.2.143-2009. Системы фотолюминесцентные эвакуационные.", hint: "Знаки на путях эвакуации должны быть освещены или фотолюминесцентными." },
-            ]
-          }
-        ]
-      }
-    ]
-  },
-  {
-    id: 4, title: "Экологическая безопасность", icon: "Leaf", color: "#22c55e",
-    areas: [
-      {
-        id: 6, title: "Обращение с отходами", checklists: [
-          {
-            id: 6, title: "Учёт и хранение отходов", questions: [
-              { id: 1, text: "Ведётся ли журнал учёта отходов производства и потребления?", requirement: "Федеральный закон № 89-ФЗ «Об отходах производства и потребления», Приказ Минприроды № 1028", hint: "Журнал заполняется ежеквартально. Форма утверждена Приказом Минприроды № 1028." },
-              { id: 2, text: "Заключён ли договор со специализированной организацией на вывоз отходов?", requirement: "ФЗ № 89-ФЗ, ст. 13 — требования к обращению с отходами.", hint: "Договор и лицензия исполнителя должны храниться в отделе экологии." },
-            ]
-          }
-        ]
-      }
-    ]
-  },
-  {
-    id: 5, title: "Транспортная безопасность", icon: "Truck", color: "#3b82f6",
-    areas: [
-      {
-        id: 7, title: "Транспортные средства", checklists: [
-          {
-            id: 7, title: "Техническое состояние ТС", questions: [
-              { id: 1, text: "Пройден ли технический осмотр транспортного средства?", requirement: "Федеральный закон № 170-ФЗ «О техническом осмотре транспортных средств»", hint: "Диагностическая карта должна быть действующей. Срок ТО зависит от категории ТС." },
-              { id: 2, text: "Проведён ли предрейсовый медицинский осмотр водителя?", requirement: "Приказ Минздрава России № 834н «О медицинских осмотрах водителей»", hint: "Отметка о прохождении медосмотра — в путевом листе." },
-            ]
-          }
-        ]
-      }
-    ]
-  },
-  {
-    id: 6, title: "Санитарно-эпидемиологическая безопасность", icon: "Stethoscope", color: "#a78bfa",
-    areas: [
-      {
-        id: 8, title: "Производственный контроль", checklists: [
-          {
-            id: 8, title: "Санитарный контроль объекта", questions: [
-              { id: 1, text: "Разработана ли программа производственного контроля?", requirement: "Федеральный закон № 52-ФЗ «О санитарно-эпидемиологическом благополучии населения», ст. 32", hint: "Программа ПК разрабатывается юридическим лицом самостоятельно и согласуется с Роспотребнадзором." },
-              { id: 2, text: "Проведены ли лабораторные исследования в рамках ПК?", requirement: "СП 1.1.1058-01. Организация и проведение производственного контроля.", hint: "Протоколы испытаний должны быть в наличии за текущий период." },
-            ]
-          }
-        ]
-      }
-    ]
-  },
-  {
-    id: 7, title: "Антитеррористическая защищённость", icon: "ShieldAlert", color: "#ec4899",
-    areas: [
-      {
-        id: 9, title: "Система охраны объекта", checklists: [
-          {
-            id: 9, title: "Проверка антитеррористической защищённости", questions: [
-              { id: 1, text: "Разработан ли паспорт безопасности объекта?", requirement: "Постановление Правительства РФ № 1995 «Об утверждении требований к антитеррористической защищённости объектов»", hint: "Паспорт безопасности разрабатывается и согласуется с Росгвардией и ФСБ." },
-              { id: 2, text: "Проведён ли инструктаж персонала по действиям при угрозе теракта?", requirement: "Постановление Правительства РФ № 1438, раздел о подготовке персонала.", hint: "Инструктаж проводится не реже 1 раза в год, записи — в журнале инструктажей." },
-            ]
-          }
-        ]
-      }
-    ]
-  },
-  {
-    id: 8, title: "Бухгалтерское дело", icon: "Calculator", color: "#f59e0b",
-    areas: [
-      {
-        id: 10, title: "Первичная документация", checklists: [
-          {
-            id: 10, title: "Проверка первичных документов", questions: [
-              { id: 1, text: "Все ли первичные документы оформлены по установленным формам?", requirement: "Федеральный закон № 402-ФЗ «О бухгалтерском учёте», ст. 9 — требования к первичным документам.", hint: "Обязательные реквизиты: наименование, дата, организация, содержание, подписи." },
-              { id: 2, text: "Соблюдаются ли сроки сдачи первичных документов в бухгалтерию?", requirement: "Учётная политика организации — график документооборота.", hint: "График документооборота утверждается приказом руководителя." },
-            ]
-          }
-        ]
-      }
-    ]
-  },
-  {
-    id: 9, title: "Информационная безопасность", icon: "Lock", color: "#06b6d4",
-    areas: [
-      {
-        id: 11, title: "Защита персональных данных", checklists: [
-          {
-            id: 11, title: "Проверка защиты ПД", questions: [
-              { id: 1, text: "Назначен ли ответственный за обработку персональных данных?", requirement: "Федеральный закон № 152-ФЗ «О персональных данных», ст. 22.1", hint: "Приказ о назначении ответственного должен быть в наличии." },
-              { id: 2, text: "Получены ли согласия субъектов ПД на их обработку?", requirement: "ФЗ № 152-ФЗ, ст. 9 — требования к согласию субъекта ПД.", hint: "Форма согласия должна содержать все обязательные элементы по ст. 9 ФЗ-152." },
-              { id: 3, text: "Проведена ли оценка уровня защищённости информационной системы ПД?", requirement: "Постановление Правительства РФ № 1119, ФЗ № 152-ФЗ", hint: "Акт классификации ИСПДн и технический паспорт должны быть в наличии." },
-            ]
-          }
-        ]
-      }
-    ]
-  },
-  {
-    id: 10, title: "Иное", icon: "MoreHorizontal", color: "#64748b",
-    areas: []
-  },
-];
-
-type ViewMode = "spheres" | "areas" | "checklists" | "object" | "survey" | "admin" | "history" | "historyDetail";
-
-interface QuestionState {
-  answer: AnswerValue;
-  note: string;
-  photos: string[];
-}
-
-interface HistoryRecord {
-  id: number;
-  objectName: string;
-  checklistTitle: string;
-  sphereTitle: string;
-  areaTitle: string;
-  date: string;
-  yes: number;
-  no: number;
-  na: number;
-  questions: { text: string; answer: AnswerValue; note: string; photos: string[] }[];
-}
 
 export default function ChecklistModule({ onBack }: Props) {
   const { isAdmin } = useApp();
@@ -465,710 +250,89 @@ export default function ChecklistModule({ onBack }: Props) {
   // ── ADMIN VIEW ──────────────────────────────────────────────────────────────
   if (view === "admin") {
     return (
-      <div className="min-h-screen relative z-10 animate-fade-in">
-        <ModuleHeader title="Администрирование чек-листов" onBack={() => setView("spheres")} icon="Settings" iconColor="#06b6d4" />
-        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
-          {adminView === "main" && (
-            <>
-              {/* Upload Excel */}
-              <div className="glass-strong rounded-2xl p-5 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(16,185,129,0.2)' }}>
-                    <Icon name="FileSpreadsheet" size={20} color="#10b981" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-white">Загрузить чек-листы из Excel</p>
-                    <p className="text-xs text-white/40">Формат: .xlsx, .xls</p>
-                  </div>
-                </div>
-                <div
-                  className="border-2 border-dashed border-white/15 rounded-xl p-6 flex flex-col items-center gap-2 cursor-pointer hover:border-cyan-500/50 transition-colors"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Icon name="Upload" size={28} color="rgba(255,255,255,0.3)" />
-                  <p className="text-sm text-white/50 text-center">Нажмите для выбора файла<br /><span className="text-xs">или перетащите сюда</span></p>
-                  <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" />
-                </div>
-                <p className="text-xs text-white/30 mt-3 text-center">Файл должен содержать листы: Вопросы, Требования, Подсказки</p>
-              </div>
-
-              {/* Spheres list */}
-              <div className="animate-fade-up opacity-0 delay-100" style={{ animationFillMode: 'forwards' }}>
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">Сферы деятельности ({spheres.length})</p>
-                  <button onClick={() => setAdminView("add-sphere")} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-cyan-400 transition-colors" style={{ background: 'rgba(6,182,212,0.15)', border: '1px solid rgba(6,182,212,0.3)' }}>
-                    <Icon name="Plus" size={13} color="#06b6d4" />Добавить сферу
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {spheres.map(s => (
-                    <div key={s.id} className="glass rounded-2xl overflow-hidden">
-                      <div className="flex items-center gap-3 px-4 py-3">
-                        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${s.color}20` }}>
-                          <Icon name={s.icon} size={16} color={s.color} />
-                        </div>
-                        <span className="text-sm font-medium text-white flex-1">{s.title}</span>
-                        <span className="text-xs text-white/30">{s.areas.length} областей</span>
-                        <button
-                          onClick={() => { setAdminSphereId(s.id); setAdminView("add-area"); }}
-                          className="p-1.5 rounded-lg hover:bg-white/10 transition-colors ml-1"
-                        >
-                          <Icon name="Plus" size={14} color="rgba(255,255,255,0.5)" />
-                        </button>
-                      </div>
-                      {s.areas.length > 0 && (
-                        <div className="border-t border-white/5 px-4 py-2 space-y-1">
-                          {s.areas.map(a => (
-                            <div key={a.id} className="flex items-center gap-2 py-1.5">
-                              <Icon name="ChevronRight" size={12} color="rgba(255,255,255,0.25)" />
-                              <span className="text-xs text-white/60 flex-1">{a.title}</span>
-                              <span className="text-xs text-white/25">{a.checklists.length} чек-листов</span>
-                              <button
-                                onClick={() => { setAdminSphereId(s.id); setAdminAreaId(a.id); setAdminView("add-checklist"); }}
-                                className="p-1 rounded-lg hover:bg-white/10 transition-colors"
-                              >
-                                <Icon name="Plus" size={13} color="rgba(255,255,255,0.4)" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-
-          {adminView === "add-sphere" && (
-            <div className="glass-strong rounded-2xl p-5 animate-scale-in space-y-4">
-              <h3 className="text-base font-bold text-white">Новая сфера деятельности</h3>
-              <input className="input-field" placeholder="Название сферы..." value={newSphereTitle} onChange={e => setNewSphereTitle(e.target.value)} autoFocus />
-              <div className="flex gap-3">
-                <button onClick={() => setAdminView("main")} className="btn-ghost flex-1 text-sm">Отмена</button>
-                <button onClick={addSphere} className="btn-primary flex-1 text-sm flex items-center justify-center gap-1"><Icon name="Plus" size={15} />Создать</button>
-              </div>
-            </div>
-          )}
-
-          {adminView === "add-area" && (
-            <div className="glass-strong rounded-2xl p-5 animate-scale-in space-y-4">
-              <h3 className="text-base font-bold text-white">Новая область</h3>
-              <p className="text-xs text-white/40">Сфера: {spheres.find(s => s.id === adminSphereId)?.title}</p>
-              <input className="input-field" placeholder="Название области..." value={newAreaTitle} onChange={e => setNewAreaTitle(e.target.value)} autoFocus />
-              <div className="flex gap-3">
-                <button onClick={() => setAdminView("main")} className="btn-ghost flex-1 text-sm">Отмена</button>
-                <button onClick={addArea} className="btn-primary flex-1 text-sm flex items-center justify-center gap-1"><Icon name="Plus" size={15} />Создать</button>
-              </div>
-            </div>
-          )}
-
-          {adminView === "add-checklist" && (
-            <div className="glass-strong rounded-2xl p-5 animate-scale-in space-y-4">
-              <h3 className="text-base font-bold text-white">Новый чек-лист</h3>
-              <p className="text-xs text-white/40">
-                {spheres.find(s => s.id === adminSphereId)?.title} → {spheres.find(s => s.id === adminSphereId)?.areas.find(a => a.id === adminAreaId)?.title}
-              </p>
-              <input className="input-field" placeholder="Название чек-листа..." value={newChecklistTitle} onChange={e => setNewChecklistTitle(e.target.value)} autoFocus />
-              <div className="glass rounded-2xl p-3 flex items-center gap-3 cursor-pointer hover:bg-white/5 transition-colors" onClick={() => fileInputRef.current?.click()}>
-                <Icon name="FileSpreadsheet" size={18} color="#10b981" />
-                <span className="text-sm text-white/60">Загрузить вопросы из Excel</span>
-                <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" />
-              </div>
-              <div className="flex gap-3">
-                <button onClick={() => setAdminView("main")} className="btn-ghost flex-1 text-sm">Отмена</button>
-                <button onClick={addChecklist} className="btn-primary flex-1 text-sm flex items-center justify-center gap-1"><Icon name="Plus" size={15} />Создать</button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ── OBJECT NAME VIEW ────────────────────────────────────────────────────────
-  if (view === "object" && pendingChecklist) {
-    return (
-      <div className="min-h-screen relative z-10 animate-fade-in">
-        <ModuleHeader title="Проверяемый объект" onBack={() => setView("checklists")} icon="MapPin" iconColor="#06b6d4" />
-        <div className="max-w-2xl mx-auto px-4 pt-6 pb-8 space-y-4">
-          <div className="glass-strong rounded-2xl p-5 space-y-4 animate-scale-in">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(6,182,212,0.2)' }}><Icon name="ClipboardCheck" size={24} color="#06b6d4" /></div>
-              <div>
-                <p className="text-sm font-semibold text-white">{pendingChecklist.title}</p>
-                <p className="text-xs text-white/40">{selectedSphere?.title} → {selectedArea?.title}</p>
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Наименование проверяемого объекта *</label>
-              <input className="input-field" placeholder="Например: Склад №3, ул. Промышленная 12" value={objectName} onChange={e => setObjectName(e.target.value)} onKeyDown={e => e.key === "Enter" && startSurvey()} autoFocus />
-              <p className="text-xs text-white/30 mt-2">Это название будет указано в отчёте и истории проверок</p>
-            </div>
-            <button onClick={startSurvey} className="btn-primary flex items-center justify-center gap-2" disabled={!objectName.trim()} style={{ background: 'linear-gradient(135deg, #06b6d4, #0891b2)' }}>
-              <Icon name="Play" size={18} />Начать проверку
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── HISTORY LIST ──────────────────────────────────────────────────────────
-  if (view === "history") {
-    return (
-      <div className="min-h-screen relative z-10 animate-fade-in">
-        <ModuleHeader title="История проверок" onBack={() => setView("spheres")} icon="History" iconColor="#06b6d4" subtitle={`${history.length} проверок`} />
-        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
-          {history.map((rec, i) => (
-            <button key={rec.id} onClick={() => { setHistoryRecord(rec); setView("historyDetail"); }} className="w-full text-left glass rounded-2xl p-4 animate-fade-up opacity-0 hover:border-white/20 transition-all" style={{ animationDelay: `${i * 0.05}s`, animationFillMode: 'forwards' }}>
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(6,182,212,0.15)' }}><Icon name="MapPin" size={18} color="#06b6d4" /></div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-white truncate">{rec.objectName}</p>
-                  <p className="text-xs text-white/40 truncate">{rec.checklistTitle}</p>
-                  <p className="text-xs text-white/30 mt-0.5">{rec.date}</p>
-                </div>
-                <div className="flex gap-1.5 flex-shrink-0">
-                  <span className="text-xs px-1.5 py-0.5 rounded-md font-semibold" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>{rec.yes}</span>
-                  <span className="text-xs px-1.5 py-0.5 rounded-md font-semibold" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>{rec.no}</span>
-                  <span className="text-xs px-1.5 py-0.5 rounded-md font-semibold" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>{rec.na}</span>
-                </div>
-              </div>
-            </button>
-          ))}
-          {history.length === 0 && (
-            <div className="text-center py-14">
-              <Icon name="History" size={36} color="rgba(255,255,255,0.15)" className="mx-auto mb-3" />
-              <p className="text-white/30 text-sm">История проверок пуста</p>
-              <p className="text-white/20 text-xs mt-1">Завершите чек-лист и сохраните результат</p>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ── HISTORY DETAIL ────────────────────────────────────────────────────────
-  if (view === "historyDetail" && historyRecord) {
-    const ANS_LABEL: Record<string, { label: string; color: string }> = { yes: { label: "Да", color: "#22c55e" }, no: { label: "Нет", color: "#ef4444" }, na: { label: "Не требуется", color: "#f59e0b" } };
-    return (
-      <div className="min-h-screen relative z-10 animate-fade-in">
-        <ModuleHeader title={historyRecord.objectName} onBack={() => setView("history")} subtitle={historyRecord.checklistTitle} />
-        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
-          <div className="glass rounded-2xl p-4">
-            <div className="flex items-center gap-2 text-xs text-white/40 mb-3"><Icon name="Calendar" size={12} />{historyRecord.date}</div>
-            <div className="grid grid-cols-3 gap-2">
-              {[{ k: "yes", v: historyRecord.yes }, { k: "no", v: historyRecord.no }, { k: "na", v: historyRecord.na }].map(s => (
-                <div key={s.k} className="text-center py-3 rounded-xl" style={{ background: `${ANS_LABEL[s.k].color}12` }}><div className="text-xl font-bold" style={{ color: ANS_LABEL[s.k].color }}>{s.v}</div><div className="text-xs" style={{ color: ANS_LABEL[s.k].color }}>{ANS_LABEL[s.k].label}</div></div>
-              ))}
-            </div>
-          </div>
-          {historyRecord.questions.map((q, i) => (
-            <div key={i} className="glass rounded-2xl p-4">
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <p className="text-sm text-white/80 flex-1">{i + 1}. {q.text}</p>
-                <span className="text-xs px-2 py-1 rounded-lg font-semibold flex-shrink-0" style={{ background: `${ANS_LABEL[q.answer || "na"].color}18`, color: ANS_LABEL[q.answer || "na"].color }}>{ANS_LABEL[q.answer || "na"].label}</span>
-              </div>
-              {q.note && <p className="text-xs text-white/50 italic mb-2">📝 {q.note}</p>}
-              {q.photos.length > 0 && (
-                <div className="grid grid-cols-3 gap-2 mt-2">
-                  {q.photos.map((p, pi) => (
-                    <div key={pi} className="aspect-square rounded-xl overflow-hidden relative" style={{ background: 'rgba(139,92,246,0.15)' }}>
-                      {p.startsWith("data:") ? <img src={p} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Icon name="ImageIcon" size={18} color="rgba(139,92,246,0.6)" /></div>}
-                      {p.startsWith("data:") && <button onClick={() => downloadPhoto(p, pi)} className="absolute bottom-1 right-1 w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}><Icon name="Download" size={12} color="white" /></button>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
+      <ChecklistAdminView
+        spheres={spheres}
+        adminView={adminView}
+        setAdminView={setAdminView}
+        setView={setView}
+        adminSphereId={adminSphereId}
+        setAdminSphereId={setAdminSphereId}
+        adminAreaId={adminAreaId}
+        setAdminAreaId={setAdminAreaId}
+        newSphereTitle={newSphereTitle}
+        setNewSphereTitle={setNewSphereTitle}
+        newAreaTitle={newAreaTitle}
+        setNewAreaTitle={setNewAreaTitle}
+        newChecklistTitle={newChecklistTitle}
+        setNewChecklistTitle={setNewChecklistTitle}
+        addSphere={addSphere}
+        addArea={addArea}
+        addChecklist={addChecklist}
+        fileInputRef={fileInputRef}
+      />
     );
   }
 
   // ── SURVEY VIEW ─────────────────────────────────────────────────────────────
   if (view === "survey" && selectedChecklist && currentQ) {
-    const qState = getQState(currentQ.id);
-    const isLast = currentQIndex === selectedChecklist.questions.length - 1;
-
-    const goNext = () => {
-      if (isLast) {
-        setActiveModal({ type: "result" });
-      } else {
-        setCurrentQIndex(i => i + 1);
-      }
-    };
-
-    const goPrev = () => {
-      if (currentQIndex > 0) setCurrentQIndex(i => i - 1);
-    };
-
     return (
-      <div className="min-h-screen relative z-10 animate-fade-in flex flex-col">
-        {/* Modal overlay */}
-        {activeModal && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }} onClick={() => setActiveModal(null)}>
-            <div className="w-full max-w-2xl animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }} onClick={e => e.stopPropagation()}>
-              <div className="glass-strong rounded-t-3xl p-6 max-h-[80vh] overflow-y-auto">
-                {activeModal.type === "req" && (
-                  <>
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.2)' }}><Icon name="BookOpen" size={16} color="#ef4444" /></div>
-                      <h3 className="text-base font-bold text-white">Нормативное требование</h3>
-                    </div>
-                    <p className="text-sm text-white/70 leading-relaxed">{currentQ.requirement}</p>
-                  </>
-                )}
-                {activeModal.type === "hint" && (
-                  <>
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(245,158,11,0.2)' }}><Icon name="Lightbulb" size={16} color="#f59e0b" /></div>
-                      <h3 className="text-base font-bold text-white">Подсказка</h3>
-                    </div>
-                    <p className="text-sm text-white/70 leading-relaxed">{currentQ.hint}</p>
-                  </>
-                )}
-                {activeModal.type === "note" && activeModal.qId !== undefined && (
-                  <>
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(6,182,212,0.2)' }}><Icon name="StickyNote" size={16} color="#06b6d4" /></div>
-                      <h3 className="text-base font-bold text-white">Примечание</h3>
-                    </div>
-                    <textarea
-                      className="input-field resize-none mb-4"
-                      rows={4}
-                      placeholder="Введите примечание к данному вопросу..."
-                      defaultValue={getQState(activeModal.qId).note}
-                      onChange={e => setNoteInput(e.target.value)}
-                      onFocus={() => setNoteInput(getQState(activeModal.qId!).note)}
-                    />
-                    <button className="btn-primary text-sm py-3 flex items-center justify-center gap-2" onClick={() => {
-                      saveNote(activeModal.qId!, noteInput || getQState(activeModal.qId!).note);
-                      setActiveModal(null);
-                    }}>
-                      <Icon name="Check" size={16} />Сохранить примечание
-                    </button>
-                  </>
-                )}
-                {activeModal.type === "photo" && activeModal.qId !== undefined && (
-                  <>
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.2)' }}><Icon name="Camera" size={16} color="#8b5cf6" /></div>
-                      <h3 className="text-base font-bold text-white">Фотоотчёт</h3>
-                    </div>
-                    {getQState(activeModal.qId).photos.length > 0 && (
-                      <div className="grid grid-cols-3 gap-2 mb-4">
-                        {getQState(activeModal.qId).photos.map((p, i) => (
-                          <div key={i} className="aspect-square rounded-xl overflow-hidden relative group" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)' }}>
-                            {p.startsWith("data:") ? <img src={p} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Icon name="ImageIcon" size={20} color="rgba(139,92,246,0.6)" /></div>}
-                            <button onClick={() => setQuestionStates(prev => ({ ...prev, [activeModal.qId!]: { ...getQState(activeModal.qId!), photos: getQState(activeModal.qId!).photos.filter((_, idx) => idx !== i) } }))} className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}><Icon name="X" size={11} color="white" /></button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <input ref={photoFileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoFile} />
-                    <div className="grid grid-cols-2 gap-3">
-                      <button className="flex flex-col items-center gap-2 py-5 rounded-2xl transition-colors hover:bg-white/10" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
-                        onClick={() => { photoQIdRef.current = activeModal.qId!; photoFileRef.current?.setAttribute("capture", "environment"); photoFileRef.current?.click(); }}>
-                        <Icon name="Camera" size={24} color="rgba(255,255,255,0.6)" />
-                        <span className="text-xs text-white/60">Сфотографировать</span>
-                      </button>
-                      <button className="flex flex-col items-center gap-2 py-5 rounded-2xl transition-colors hover:bg-white/10" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
-                        onClick={() => { photoQIdRef.current = activeModal.qId!; photoFileRef.current?.removeAttribute("capture"); photoFileRef.current?.click(); }}>
-                        <Icon name="Upload" size={24} color="rgba(255,255,255,0.6)" />
-                        <span className="text-xs text-white/60">Загрузить файл</span>
-                      </button>
-                    </div>
-                  </>
-                )}
-                {activeModal.type === "result" && (
-                  <>
-                    {/* Header */}
-                    <div className="text-center mb-5">
-                      <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-3 glow" style={{ background: 'linear-gradient(135deg, #06b6d4, #0891b2)' }}>
-                        <Icon name="CheckCircle" size={32} color="white" />
-                      </div>
-                      <h3 className="text-xl font-bold text-white mb-1">Чек-лист завершён!</h3>
-                      <p className="text-white/50 text-sm">{selectedChecklist.title}</p>
-                    </div>
-
-                    {/* Stats */}
-                    <div className="grid grid-cols-3 gap-3 mb-5">
-                      {([
-                        { v: "yes" as AnswerValue, label: "Да", icon: "Check", color: "#22c55e" },
-                        { v: "no" as AnswerValue, label: "Нет", icon: "X", color: "#ef4444" },
-                        { v: "na" as AnswerValue, label: "Не прим.", icon: "Minus", color: "#f59e0b" },
-                      ]).map(({ v, label, icon, color }) => {
-                        const count = selectedChecklist.questions.filter(q => getQState(q.id).answer === v).length;
-                        return (
-                          <div key={v!} className="text-center py-4 rounded-2xl" style={{ background: `${color}12`, border: `1px solid ${color}30` }}>
-                            <div className="text-2xl font-bold mb-0.5" style={{ color }}>{count}</div>
-                            <div className="text-xs" style={{ color }}>{label}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Violations alert */}
-                    {selectedChecklist.questions.filter(q => getQState(q.id).answer === "no").length > 0 && (
-                      <div className="flex items-start gap-2 p-3 rounded-xl mb-4" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}>
-                        <Icon name="AlertTriangle" size={15} color="#ef4444" className="flex-shrink-0 mt-0.5" />
-                        <p className="text-xs text-red-300 leading-relaxed">
-                          Обнаружено <strong>{selectedChecklist.questions.filter(q => getQState(q.id).answer === "no").length}</strong> нарушений. Рекомендуется принять корректирующие меры и провести повторную проверку.
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Email form */}
-                    {showEmailForm ? (
-                      <div className="space-y-3 mb-4 animate-scale-in">
-                        <div>
-                          <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Email получателя</label>
-                          <input
-                            className="input-field text-sm"
-                            placeholder="example@company.ru"
-                            type="email"
-                            value={emailInput}
-                            onChange={e => setEmailInput(e.target.value)}
-                            onKeyDown={e => e.key === "Enter" && handleSendEmail()}
-                            autoFocus
-                          />
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={() => setShowEmailForm(false)} className="btn-ghost flex-1 text-sm">Отмена</button>
-                          <button onClick={handleSendEmail} disabled={!emailInput.trim() || sendingEmail} className="btn-primary flex-1 text-sm flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: 'linear-gradient(135deg, #06b6d4, #0891b2)' }}>
-                            {sendingEmail
-                              ? <><Icon name="Loader2" size={15} className="animate-spin" />Отправка...</>
-                              : <><Icon name="Send" size={15} />Отправить</>
-                            }
-                          </button>
-                        </div>
-                      </div>
-                    ) : emailSent ? (
-                      <div className="flex items-center gap-2 p-3 rounded-xl mb-4" style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)' }}>
-                        <Icon name="CheckCircle" size={15} color="#06b6d4" />
-                        <p className="text-xs text-cyan-300">Отчёт отправлен на <strong>{emailInput}</strong></p>
-                      </div>
-                    ) : null}
-
-                    {/* Action buttons */}
-                    <div className="space-y-2">
-                      <button
-                        onClick={generateAndPrintReport}
-                        className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-semibold text-white transition-all active:scale-98"
-                        style={{ background: 'linear-gradient(135deg, #06b6d4, #0891b2)', boxShadow: '0 4px 20px rgba(6,182,212,0.35)' }}
-                      >
-                        <Icon name="FileText" size={17} />Сформировать PDF-отчёт
-                      </button>
-                      {!showEmailForm && !emailSent && (
-                        <button
-                          onClick={() => setShowEmailForm(true)}
-                          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-semibold transition-all"
-                          style={{ background: 'rgba(6,182,212,0.12)', border: '1px solid rgba(6,182,212,0.3)', color: '#06b6d4' }}
-                        >
-                          <Icon name="Mail" size={17} color="#06b6d4" />Отправить отчёт на почту
-                        </button>
-                      )}
-                      {emailSent && (
-                        <button
-                          onClick={() => { setEmailSent(false); setShowEmailForm(true); setEmailInput(""); }}
-                          className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-medium text-white/50 transition-all hover:text-white/70"
-                        >
-                          <Icon name="RefreshCw" size={14} />Отправить на другой адрес
-                        </button>
-                      )}
-                      <button
-                        onClick={() => { saveToHistory(); setActiveModal(null); setView("checklists"); setSelectedChecklist(null); }}
-                        className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-semibold text-white"
-                        style={{ background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.4)', color: '#a78bfa' }}
-                      >
-                        <Icon name="Save" size={16} color="#a78bfa" />Сохранить в историю проверок
-                      </button>
-                      <button
-                        className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-medium text-white/50 transition-all hover:text-white/70"
-                        onClick={() => setActiveModal(null)}
-                      >
-                        <Icon name="ArrowLeft" size={15} />Вернуться к чек-листу
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Survey Header */}
-        <div className="glass border-b border-white/10 px-4 py-4 sticky top-0 z-20">
-          <div className="max-w-2xl mx-auto">
-            <div className="flex items-center gap-3 mb-3">
-              <button onClick={() => { setView("checklists"); setSelectedChecklist(null); }} className="p-2 rounded-xl hover:bg-white/10 transition-colors">
-                <Icon name="ArrowLeft" size={20} color="white" />
-              </button>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-cyan-400 truncate flex items-center gap-1"><Icon name="MapPin" size={11} color="#06b6d4" />{objectName}</p>
-                <p className="text-sm font-semibold text-white truncate">{selectedChecklist.title}</p>
-              </div>
-              <span className="text-sm font-bold text-cyan-400 flex-shrink-0">{currentQIndex + 1}/{total}</span>
-            </div>
-            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${progress}%`, background: 'linear-gradient(90deg, #06b6d4, #3b82f6)' }} />
-            </div>
-          </div>
-        </div>
-
-        {/* Question */}
-        <div className="flex-1 max-w-2xl mx-auto w-full px-4 pt-5 pb-8 flex flex-col gap-4">
-          <div className="glass-strong rounded-2xl p-5 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
-            <div className="flex items-start gap-3 mb-4">
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: 'rgba(6,182,212,0.2)' }}>
-                <span className="text-xs font-bold text-cyan-400">{currentQIndex + 1}</span>
-              </div>
-              <p className="text-sm font-medium text-white leading-relaxed">{currentQ.text}</p>
-            </div>
-
-            {/* Action buttons */}
-            <div className="grid grid-cols-4 gap-2 mb-5">
-              {[
-                { type: "req", label: "Требования", icon: "BookOpen", color: "#ef4444" },
-                { type: "hint", label: "Подсказка", icon: "Lightbulb", color: "#f59e0b" },
-                { type: "note", label: "Примечание", icon: "StickyNote", color: "#06b6d4" },
-                { type: "photo", label: "Фото", icon: "Camera", color: "#8b5cf6" },
-              ].map(btn => {
-                const hasNote = btn.type === "note" && qState.note;
-                const hasPhoto = btn.type === "photo" && qState.photos.length > 0;
-                return (
-                  <button
-                    key={btn.type}
-                    onClick={() => setActiveModal({ type: btn.type as "req" | "hint" | "note" | "photo", qId: currentQ.id })}
-                    className="flex flex-col items-center gap-1.5 py-3 rounded-xl transition-all hover:scale-105 relative"
-                    style={{ background: `${btn.color}12`, border: `1px solid ${btn.color}25` }}
-                  >
-                    <Icon name={btn.icon} size={18} color={btn.color} />
-                    <span className="text-xs leading-none" style={{ color: btn.color }}>{btn.label}</span>
-                    {(hasNote || hasPhoto) && (
-                      <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full" style={{ background: btn.color }} />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Answer buttons */}
-            <div className="grid grid-cols-3 gap-3">
-              {([
-                { val: "yes", label: "Да", icon: "Check", color: "#22c55e", bg: "rgba(34,197,94," },
-                { val: "no", label: "Нет", icon: "X", color: "#ef4444", bg: "rgba(239,68,68," },
-                { val: "na", label: "Не требуется", icon: "Minus", color: "#f59e0b", bg: "rgba(245,158,11," },
-              ] as const).map(opt => {
-                const active = qState.answer === opt.val;
-                return (
-                  <button
-                    key={opt.val}
-                    onClick={() => setAnswer(currentQ.id, opt.val)}
-                    className="flex flex-col items-center gap-2 py-4 rounded-2xl transition-all"
-                    style={{
-                      background: active ? `${opt.bg}0.2)` : 'rgba(255,255,255,0.04)',
-                      border: `2px solid ${active ? opt.color : 'rgba(255,255,255,0.08)'}`,
-                      transform: active ? 'scale(1.03)' : 'scale(1)',
-                      boxShadow: active ? `0 0 20px ${opt.bg}0.3)` : 'none',
-                    }}
-                  >
-                    <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: active ? `${opt.bg}0.25)` : 'rgba(255,255,255,0.06)' }}>
-                      <Icon name={opt.icon} size={18} color={active ? opt.color : "rgba(255,255,255,0.4)"} />
-                    </div>
-                    <span className="text-xs font-semibold leading-tight text-center" style={{ color: active ? opt.color : "rgba(255,255,255,0.5)" }}>
-                      {opt.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Note preview */}
-          {qState.note && (
-            <div className="flex items-start gap-2 px-4 py-3 rounded-xl animate-fade-in" style={{ background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.2)' }}>
-              <Icon name="StickyNote" size={14} color="#06b6d4" className="flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-cyan-300/80">{qState.note}</p>
-            </div>
-          )}
-
-          {/* Photos preview */}
-          {qState.photos.length > 0 && (
-            <div className="flex items-center gap-2 px-4 py-3 rounded-xl animate-fade-in" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
-              <Icon name="ImageIcon" size={14} color="#8b5cf6" />
-              <p className="text-xs text-purple-300/80">{qState.photos.length} фото прикреплено</p>
-            </div>
-          )}
-
-          {/* Navigation */}
-          <div className="flex gap-3 mt-auto">
-            <button onClick={goPrev} disabled={currentQIndex === 0} className="btn-ghost flex-shrink-0 px-5 flex items-center gap-2 disabled:opacity-30">
-              <Icon name="ArrowLeft" size={16} />Назад
-            </button>
-            <button
-              onClick={goNext}
-              disabled={qState.answer === null}
-              className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-40"
-            >
-              {isLast ? <><Icon name="CheckCircle" size={18} />Завершить</> : <><Icon name="ArrowRight" size={18} />Далее</>}
-            </button>
-          </div>
-        </div>
-      </div>
+      <ChecklistSurveyView
+        selectedChecklist={selectedChecklist}
+        currentQ={currentQ}
+        currentQIndex={currentQIndex}
+        total={total}
+        progress={progress}
+        objectName={objectName}
+        activeModal={activeModal}
+        setActiveModal={setActiveModal}
+        getQState={getQState}
+        setQuestionStates={setQuestionStates}
+        setAnswer={setAnswer}
+        saveNote={saveNote}
+        noteInput={noteInput}
+        setNoteInput={setNoteInput}
+        setCurrentQIndex={setCurrentQIndex}
+        setView={setView}
+        setSelectedChecklist={setSelectedChecklist}
+        photoFileRef={photoFileRef}
+        photoQIdRef={photoQIdRef}
+        handlePhotoFile={handlePhotoFile}
+        showEmailForm={showEmailForm}
+        setShowEmailForm={setShowEmailForm}
+        emailSent={emailSent}
+        setEmailSent={setEmailSent}
+        emailInput={emailInput}
+        setEmailInput={setEmailInput}
+        sendingEmail={sendingEmail}
+        handleSendEmail={handleSendEmail}
+        generateAndPrintReport={generateAndPrintReport}
+        saveToHistory={saveToHistory}
+      />
     );
   }
 
-  // ── CHECKLISTS VIEW ──────────────────────────────────────────────────────────
-  if (view === "checklists" && selectedArea) {
-    return (
-      <div className="min-h-screen relative z-10 animate-fade-in">
-        <ModuleHeader title={selectedArea.title} onBack={() => setView("areas")} subtitle={selectedSphere?.title} icon="ClipboardList" iconColor="#06b6d4" />
-        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
-          {selectedArea.checklists.length === 0 ? (
-            <div className="text-center py-16 text-white/30">
-              <Icon name="ClipboardList" size={36} color="rgba(255,255,255,0.15)" className="mx-auto mb-3" />
-              <p className="text-sm">Чек-листы не добавлены</p>
-              <p className="text-xs mt-1">Администратор добавит их через панель управления</p>
-            </div>
-          ) : (
-            selectedArea.checklists.map((cl, i) => (
-              <button
-                key={cl.id}
-                onClick={() => openSurvey(cl)}
-                className={`w-full text-left card-module animate-fade-up opacity-0`}
-                style={{ animationDelay: `${i * 0.06}s`, animationFillMode: 'forwards' }}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(6,182,212,0.15)', border: '1px solid rgba(6,182,212,0.25)' }}>
-                    <Icon name="ClipboardCheck" size={20} color="#06b6d4" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-white">{cl.title}</p>
-                    <p className="text-xs text-white/40 mt-0.5">{cl.questions.length} вопросов</p>
-                  </div>
-                  <Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.25)" />
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ── AREAS VIEW ───────────────────────────────────────────────────────────────
-  if (view === "areas" && selectedSphere) {
-    return (
-      <div className="min-h-screen relative z-10 animate-fade-in">
-        <ModuleHeader
-          title={selectedSphere.title}
-          onBack={() => setView("spheres")}
-          icon={selectedSphere.icon}
-          iconColor={selectedSphere.color}
-          subtitle="Выберите область"
-        />
-        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
-          {selectedSphere.areas.length === 0 ? (
-            <div className="text-center py-16 text-white/30">
-              <Icon name="FolderOpen" size={36} color="rgba(255,255,255,0.15)" className="mx-auto mb-3" />
-              <p className="text-sm">Области не добавлены</p>
-            </div>
-          ) : (
-            selectedSphere.areas.map((area, i) => (
-              <button
-                key={area.id}
-                onClick={() => { setSelectedArea(area); setView("checklists"); }}
-                className={`w-full text-left card-module animate-fade-up opacity-0`}
-                style={{ animationDelay: `${i * 0.06}s`, animationFillMode: 'forwards' }}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${selectedSphere.color}15`, border: `1px solid ${selectedSphere.color}25` }}>
-                    <Icon name="Layers" size={20} color={selectedSphere.color} />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-white">{area.title}</p>
-                    <p className="text-xs text-white/40 mt-0.5">{area.checklists.length} чек-листов</p>
-                  </div>
-                  <Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.25)" />
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ── SPHERES LIST ──────────────────────────────────────────────────────────────
+  // ── BROWSE VIEWS (object / history / historyDetail / checklists / areas / spheres) ──
   return (
-    <div className="min-h-screen relative z-10 animate-fade-in">
-      <div className="glass border-b border-white/10 px-4 py-4 sticky top-0 z-20">
-        <div className="flex items-center justify-between max-w-2xl mx-auto">
-          <div className="flex items-center gap-3">
-            <button onClick={onBack} className="p-2 rounded-xl hover:bg-white/10 transition-colors">
-              <Icon name="ArrowLeft" size={20} color="white" />
-            </button>
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(6,182,212,0.2)', border: '1px solid rgba(6,182,212,0.3)' }}>
-              <Icon name="CheckSquare" size={18} color="#06b6d4" />
-            </div>
-            <div>
-              <h1 className="text-base font-bold text-white">Чек-листы</h1>
-              <p className="text-xs text-white/40">Выберите сферу деятельности</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setView("history")}
-              className="relative p-2 rounded-xl hover:bg-white/10 transition-colors"
-              title="История проверок"
-            >
-              <Icon name="History" size={18} color="rgba(255,255,255,0.6)" />
-              {history.length > 0 && <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-white font-bold" style={{ background: '#06b6d4', fontSize: '9px' }}>{history.length}</span>}
-            </button>
-            {isAdmin && (
-              <button
-                onClick={() => { setView("admin"); setAdminView("main"); }}
-                className="p-2 rounded-xl hover:bg-white/10 transition-colors"
-                title="Администрирование"
-              >
-                <Icon name="Settings" size={18} color="rgba(255,255,255,0.5)" />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-2xl mx-auto px-4 pt-4 pb-8">
-        <button onClick={() => setView("history")} className="w-full flex items-center gap-3 p-4 rounded-2xl text-left mb-4" style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.25)' }}>
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(6,182,212,0.15)' }}><Icon name="History" size={20} color="#06b6d4" /></div>
-          <div className="flex-1"><p className="text-sm font-semibold text-white">История проверок объектов</p><p className="text-xs text-white/40">{history.length} сохранённых проверок</p></div>
-          <Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.3)" />
-        </button>
-        <div className="grid grid-cols-2 gap-3">
-          {spheres.map((sphere, i) => (
-            <button
-              key={sphere.id}
-              onClick={() => { setSelectedSphere(sphere); setView("areas"); }}
-              className={`card-module text-left animate-fade-up opacity-0`}
-              style={{ animationDelay: `${i * 0.05}s`, animationFillMode: 'forwards' }}
-            >
-              <div className="w-11 h-11 rounded-2xl flex items-center justify-center mb-3" style={{ background: `${sphere.color}15`, border: `1px solid ${sphere.color}25` }}>
-                <Icon name={sphere.icon} size={22} color={sphere.color} />
-              </div>
-              <p className="text-sm font-semibold text-white leading-snug mb-1">{sphere.title}</p>
-              <p className="text-xs" style={{ color: sphere.color + "99" }}>
-                {sphere.areas.length > 0
-                  ? `${sphere.areas.length} ${sphere.areas.length === 1 ? "область" : sphere.areas.length < 5 ? "области" : "областей"}`
-                  : "Нет областей"}
-              </p>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
+    <ChecklistBrowseViews
+      view={view}
+      onBack={onBack}
+      isAdmin={isAdmin}
+      spheres={spheres}
+      selectedSphere={selectedSphere}
+      selectedArea={selectedArea}
+      setSelectedSphere={setSelectedSphere}
+      setSelectedArea={setSelectedArea}
+      setView={setView}
+      setAdminView={setAdminView}
+      history={history}
+      historyRecord={historyRecord}
+      setHistoryRecord={setHistoryRecord}
+      pendingChecklist={pendingChecklist}
+      objectName={objectName}
+      setObjectName={setObjectName}
+      startSurvey={startSurvey}
+      openSurvey={openSurvey}
+      downloadPhoto={downloadPhoto}
+    />
   );
 }

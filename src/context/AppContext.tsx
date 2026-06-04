@@ -29,6 +29,8 @@ export interface RoleRequest {
   role: "content_maker" | "editor" | "documentor";
   date: string;
   status: "pending" | "approved" | "rejected";
+  requiresPayment?: boolean;
+  paid?: boolean;
 }
 
 export interface RoleGrant {
@@ -102,8 +104,9 @@ interface AppContextType {
 
   // role requests
   roleRequests: RoleRequest[];
-  addRoleRequest: (role: "content_maker" | "editor" | "documentor") => void;
+  addRoleRequest: (role: "content_maker" | "editor" | "documentor", phone?: string, requiresPayment?: boolean) => void;
   resolveRoleRequest: (id: number, approve: boolean) => void;
+  payForRole: (requestId: number) => void;
 
   // role grants (with expiry)
   roleGrants: RoleGrant[];
@@ -252,20 +255,36 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
     setNotifications(prev => [{ id: Date.now() + Math.random(), userId, text, date: new Date().toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }), read: false, type }, ...prev]);
   };
 
-  const addRoleRequest = (role: "content_maker" | "editor" | "documentor") => {
-    setRoleRequests(prev => [...prev, { id: Date.now(), userId: currentUser.id, userName: currentUser.name, phone: currentUser.phone, role, date: new Date().toLocaleDateString("ru-RU"), status: "pending" }]);
+  const addRoleRequest = (role: "content_maker" | "editor" | "documentor", phone?: string, requiresPayment?: boolean) => {
+    setRoleRequests(prev => [...prev, { id: Date.now(), userId: currentUser.id, userName: currentUser.name, phone: phone || currentUser.phone, role, date: new Date().toLocaleDateString("ru-RU"), status: "pending", requiresPayment: !!requiresPayment, paid: false }]);
   };
 
   const resolveRoleRequest = (id: number, approve: boolean) => {
     setRoleRequests(prev => prev.map(r => {
       if (r.id !== id) return r;
       if (approve) {
+        // Если роль платная — не выдаём сразу, ждём оплату пользователем
+        if (r.requiresPayment) {
+          addNotification(r.userId, "Ваша заявка одобрена. Для активации роли необходимо произвести оплату.", "role");
+          return { ...r, status: "approved" as const };
+        }
         grantRole(r.userId, r.role);
         const validUntil = new Date(Date.now() + 30 * 24 * 3600 * 1000).toLocaleDateString("ru-RU");
         setRoleGrants(g => [...g.filter(x => !(x.userId === r.userId && x.role === r.role)), { userId: r.userId, role: r.role, validUntil, grantedAt: new Date().toLocaleDateString("ru-RU") }]);
         addNotification(r.userId, `Вам выдана роль. Доступ активен до ${validUntil}.`, "role");
       }
       return { ...r, status: approve ? "approved" : "rejected" };
+    }));
+  };
+
+  const payForRole = (requestId: number) => {
+    setRoleRequests(prev => prev.map(r => {
+      if (r.id !== requestId) return r;
+      grantRole(r.userId, r.role);
+      const validUntil = new Date(Date.now() + 365 * 24 * 3600 * 1000).toLocaleDateString("ru-RU");
+      setRoleGrants(g => [...g.filter(x => !(x.userId === r.userId && x.role === r.role)), { userId: r.userId, role: r.role, validUntil, grantedAt: new Date().toLocaleDateString("ru-RU") }]);
+      addNotification(r.userId, `Оплата принята. Роль активна до ${validUntil}.`, "role");
+      return { ...r, paid: true };
     }));
   };
 
@@ -318,7 +337,7 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
   const value: AppContextType = {
     currentUser, setCurrentUser, updateCurrentUser,
     users, setUsers, toggleBlock, toggleForumBan, grantRole, revokeRole, toggleSubscription,
-    roleRequests, addRoleRequest, resolveRoleRequest,
+    roleRequests, addRoleRequest, resolveRoleRequest, payForRole,
     roleGrants,
     notifications,
     myNotifications: notifications.filter(n => n.userId === currentUser.id),

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import AdminBlockButton from "@/components/AdminBlockButton";
@@ -62,10 +62,12 @@ const INITIAL_VIDEOS: VideoItem[] = [
 ];
 
 type TabType = "all" | "favorites";
-type ViewType = "feed" | "player" | "channel" | "add" | "request" | "admin_requests" | "studio";
+type ViewType = "feed" | "player" | "channel" | "add" | "request" | "admin_requests" | "studio" | "payment";
+
+const CONTENT_MAKER_PRICE = 4999;
 
 export default function VideoModule({ onBack }: Props) {
-  const { currentUser, hasRole, isAdmin, categories, addRoleRequest, roleRequests, resolveRoleRequest, toggleSubscription, bumpStat, isContentBlocked } = useApp();
+  const { currentUser, hasRole, isAdmin, categories, addRoleRequest, roleRequests, resolveRoleRequest, payForRole, paymentServices, toggleSubscription, bumpStat, isContentBlocked } = useApp();
   const VIDEO_CATEGORIES = ["Все", ...(categories.video || [])];
 
   const [videos, setVideos] = useState<VideoItem[]>(INITIAL_VIDEOS);
@@ -84,9 +86,22 @@ export default function VideoModule({ onBack }: Props) {
   const [editingVideo, setEditingVideo] = useState<VideoItem | null>(null);
 
   const [addForm, setAddForm] = useState({ title: "", description: "", category: (categories.video || [])[1] || "Охрана труда", hashtags: "", youtubeUrl: "", file: "" });
+  const videoFileRef = useRef<HTMLInputElement>(null);
+  const [requestPhone, setRequestPhone] = useState(currentUser.phone || "");
+  const [requestAgreed, setRequestAgreed] = useState(false);
 
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
   const canAdd = isAdmin || hasRole("content_maker");
+
+  // Заявка текущего пользователя на роль контентмейкера
+  const myCMRequest = roleRequests.filter(r => r.userId === currentUser.id && r.role === "content_maker").slice(-1)[0];
+  const cmService = paymentServices.find(s => s.name.toLowerCase().includes("контентмейкер")) || null;
+
+  const handleVideoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) setAddForm(prev => ({ ...prev, file: f.name }));
+    e.target.value = "";
+  };
   const pendingVideoReqs = roleRequests.filter(r => r.status === "pending" && r.role === "content_maker");
 
   const myAuthorId = 99;
@@ -182,7 +197,8 @@ export default function VideoModule({ onBack }: Props) {
           <input className="input-field" placeholder="#охрана_труда #инструктаж" value={addForm.hashtags} onChange={e => setAddForm(f => ({ ...f, hashtags: e.target.value }))} /></div>
         <div><label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Ссылка YouTube / Vimeo</label>
           <input className="input-field" placeholder="https://youtube.com/watch?v=..." value={addForm.youtubeUrl} onChange={e => setAddForm(f => ({ ...f, youtubeUrl: e.target.value }))} /></div>
-        <button onClick={() => setAddForm(f => ({ ...f, file: f.file ? "" : "video.mp4" }))} className="w-full flex flex-col items-center gap-2 p-5 rounded-xl cursor-pointer transition-colors" style={{ background: addForm.file ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.04)', border: addForm.file ? '2px solid rgba(239,68,68,0.4)' : '2px dashed rgba(255,255,255,0.15)' }}>
+        <input ref={videoFileRef} type="file" accept="video/*,.mp4,.mov,.avi,.mkv" className="hidden" onChange={handleVideoFile} />
+        <button type="button" onClick={() => videoFileRef.current?.click()} className="w-full flex flex-col items-center gap-2 p-5 rounded-xl cursor-pointer transition-colors" style={{ background: addForm.file ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.04)', border: addForm.file ? '2px solid rgba(239,68,68,0.4)' : '2px dashed rgba(255,255,255,0.15)' }}>
           <Icon name="Upload" size={24} color={addForm.file ? "#ef4444" : "rgba(255,255,255,0.3)"} />
           <span className="text-xs" style={{ color: addForm.file ? '#ef4444' : 'rgba(255,255,255,0.4)' }}>{addForm.file ? `✓ ${addForm.file}` : "Загрузить файл MP4 (до 2 ГБ)"}</span>
         </button>
@@ -235,27 +251,119 @@ export default function VideoModule({ onBack }: Props) {
   );
 
   // ── REQUEST ROLE ──
-  if (view === "request") return (
-    <div className="min-h-screen relative z-10 animate-fade-in">
-      {toast && <Toast msg={toast} />}
-      <ModuleHeader title="Стать контентмейкером" onBack={() => setView("feed")} />
-      <div className="max-w-2xl mx-auto px-4 pt-8 pb-8 text-center space-y-6">
-        <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto" style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)' }}><Icon name="Video" size={36} color="#ef4444" /></div>
-        <div>
-          <h2 className="text-xl font-bold text-white mb-2" style={{ fontFamily: 'Montserrat, sans-serif' }}>Публикуйте свои видео</h2>
-          <p className="text-white/50 text-sm leading-relaxed">Получите роль контентмейкера и добавляйте обучающие видео в общую ленту. Запрос рассмотрит администратор.</p>
+  if (view === "request") {
+    const phoneDigits = requestPhone.replace(/\D/g, "");
+    const canSubmit = phoneDigits.length >= 10 && requestAgreed;
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        {toast && <Toast msg={toast} />}
+        <ModuleHeader title="Стать контентмейкером" onBack={() => setView("feed")} />
+        <div className="max-w-2xl mx-auto px-4 pt-6 pb-8 space-y-5">
+          <div className="text-center space-y-3">
+            <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto" style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)' }}><Icon name="Video" size={36} color="#ef4444" /></div>
+            <div>
+              <h2 className="text-xl font-bold text-white mb-2" style={{ fontFamily: 'Montserrat, sans-serif' }}>Публикуйте свои видео</h2>
+              <p className="text-white/50 text-sm leading-relaxed">Получите роль контентмейкера и добавляйте обучающие видео в общую ленту.</p>
+            </div>
+          </div>
+
+          <div className="glass rounded-2xl p-4 text-left space-y-2.5">
+            {["Добавлять видео в ленту", "Вести свой канал", "Получать подписчиков", "Видеть статистику"].map((item, i) => (
+              <div key={i} className="flex items-center gap-3"><div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(239,68,68,0.2)' }}><Icon name="Check" size={11} color="#ef4444" /></div><span className="text-sm text-white/70">{item}</span></div>
+            ))}
+          </div>
+
+          {/* Стоимость */}
+          <div className="glass rounded-2xl p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(16,185,129,0.15)' }}><Icon name="Wallet" size={20} color="#10b981" /></div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-white">Стоимость роли</p>
+              <p className="text-xs text-white/40">Оплата после одобрения заявки</p>
+            </div>
+            <span className="text-lg font-bold text-green-400">{CONTENT_MAKER_PRICE.toLocaleString("ru-RU")} ₽/год</span>
+          </div>
+
+          {/* Телефон */}
+          <div>
+            <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Номер телефона для обратной связи *</label>
+            <input className="input-field" type="tel" placeholder="+7 (___) ___-__-__" value={requestPhone} onChange={e => setRequestPhone(e.target.value)} />
+          </div>
+
+          {/* Юридическая инструкция */}
+          <div className="glass rounded-2xl p-4 flex items-start gap-3" style={{ border: '1px solid rgba(245,158,11,0.25)', background: 'rgba(245,158,11,0.08)' }}>
+            <Icon name="Info" size={16} color="#f59e0b" className="flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-yellow-200/80 leading-relaxed">Администрация рассматривает заявку и принимает решение об одобрении или отказе по собственному усмотрению. Решение администрации окончательно и не требует пояснений.</p>
+          </div>
+
+          {/* Чекбокс согласия */}
+          <button type="button" onClick={() => setRequestAgreed(a => !a)} className="w-full flex items-center gap-3 p-4 rounded-xl text-left transition-all" style={{ background: requestAgreed ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.04)', border: requestAgreed ? '1px solid rgba(239,68,68,0.35)' : '1px solid rgba(255,255,255,0.1)' }}>
+            <div className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: requestAgreed ? '#ef4444' : 'transparent', border: requestAgreed ? 'none' : '1px solid rgba(255,255,255,0.25)' }}>{requestAgreed && <Icon name="Check" size={12} color="white" />}</div>
+            <span className="text-sm text-white/80">Я ознакомлен и согласен с правилами подачи заявки</span>
+          </button>
+
+          <button className="btn-primary flex items-center justify-center gap-2 disabled:opacity-40" disabled={!canSubmit} onClick={() => { addRoleRequest("content_maker", requestPhone, true); showToast("📩 Запрос отправлен администратору"); setRequestAgreed(false); setView("feed"); }}>
+            <Icon name="Send" size={18} />Отправить заявку
+          </button>
         </div>
-        <div className="glass rounded-2xl p-4 text-left space-y-2.5">
-          {["Добавлять видео в ленту", "Вести свой канал", "Получать подписчиков", "Видеть статистику"].map((item, i) => (
-            <div key={i} className="flex items-center gap-3"><div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(239,68,68,0.2)' }}><Icon name="Check" size={11} color="#ef4444" /></div><span className="text-sm text-white/70">{item}</span></div>
-          ))}
-        </div>
-        <button className="btn-primary flex items-center justify-center gap-2" onClick={() => { addRoleRequest("content_maker"); showToast("📩 Запрос отправлен администратору"); setView("feed"); }}>
-          <Icon name="Send" size={18} />Отправить заявку
-        </button>
       </div>
-    </div>
-  );
+    );
+  }
+
+  // ── PAYMENT (after approval) ──
+  if (view === "payment") {
+    if (!myCMRequest || myCMRequest.status !== "approved" || myCMRequest.paid) {
+      return (
+        <div className="min-h-screen relative z-10 animate-fade-in">
+          {toast && <Toast msg={toast} />}
+          <ModuleHeader title="Оплата роли" onBack={() => setView("feed")} />
+          <div className="max-w-2xl mx-auto px-4 pt-8 pb-8 text-center">
+            <Icon name="Clock" size={36} color="rgba(255,255,255,0.3)" className="mx-auto mb-3" />
+            <p className="text-white/50 text-sm">Оплата станет доступна после одобрения заявки администратором.</p>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        {toast && <Toast msg={toast} />}
+        <ModuleHeader title="Оплата роли" onBack={() => setView("feed")} icon="Wallet" iconColor="#10b981" />
+        <div className="max-w-2xl mx-auto px-4 pt-6 pb-8 space-y-4">
+          <div className="glass rounded-2xl p-4 flex items-center gap-3" style={{ border: '1px solid rgba(16,185,129,0.3)' }}>
+            <Icon name="CheckCircle" size={20} color="#10b981" />
+            <p className="text-sm text-white/80 flex-1">Заявка одобрена. Оплатите роль для активации доступа.</p>
+          </div>
+
+          <div className="glass-strong rounded-2xl p-5 text-center">
+            <p className="text-xs text-white/40 uppercase tracking-wider">Роль «Контентмейкер»</p>
+            <p className="text-3xl font-bold text-white mt-1">{CONTENT_MAKER_PRICE.toLocaleString("ru-RU")} ₽<span className="text-sm font-normal text-white/40"> / год</span></p>
+          </div>
+
+          {cmService ? (
+            <div className="glass rounded-2xl p-4 space-y-3">
+              <p className="text-sm font-semibold text-white">{cmService.name}</p>
+              {cmService.requisites && <p className="text-xs text-white/60 whitespace-pre-line">{cmService.requisites}</p>}
+              {cmService.qrUrl && <img src={cmService.qrUrl} alt="QR" className="w-32 h-32 object-contain rounded-lg mx-auto" />}
+              {cmService.instruction && <p className="text-xs text-white/40">{cmService.instruction}</p>}
+            </div>
+          ) : (
+            <div className="glass rounded-2xl p-4">
+              <p className="text-xs text-white/40 mb-2">Реквизиты для оплаты</p>
+              <p className="text-xs text-white/60 whitespace-pre-line">ООО «Мобильный Инспектор»{"\n"}Р/с: 40702810000000012345{"\n"}БИК: 044525225{"\n"}Назначение: оплата роли «Контентмейкер», {requestPhone}</p>
+            </div>
+          )}
+
+          <div className="flex items-start gap-2 p-3 rounded-xl" style={{ background: 'rgba(27,111,255,0.08)', border: '1px solid rgba(27,111,255,0.2)' }}>
+            <Icon name="Info" size={14} color="#4d8fff" className="flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-blue-200/70">После подтверждения оплаты администратором роль активируется автоматически, и вы сможете добавлять видео и вести свой канал.</p>
+          </div>
+
+          <button className="btn-primary flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }} onClick={() => { payForRole(myCMRequest.id); showToast("✅ Оплата принята, роль активирована!"); setView("studio"); }}>
+            <Icon name="CreditCard" size={18} />Я оплатил(а)
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ── ADMIN REQUESTS ──
   if (view === "admin_requests") return (
@@ -391,8 +499,19 @@ export default function VideoModule({ onBack }: Props) {
             <button onClick={() => { setEditingVideo(null); setView("add"); }} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}>
               <Icon name="Plus" size={17} />Добавить видео
             </button>
+          ) : myCMRequest && myCMRequest.status === "approved" && !myCMRequest.paid ? (
+            <button onClick={() => setView("payment")} className="w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl text-left" style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.4)' }}>
+              <Icon name="Wallet" size={16} color="#10b981" />
+              <span className="text-sm font-medium text-white flex-1">Заявка одобрена — оплатите роль ({CONTENT_MAKER_PRICE.toLocaleString("ru-RU")} ₽/год)</span>
+              <Icon name="ChevronRight" size={15} color="#10b981" />
+            </button>
+          ) : myCMRequest && myCMRequest.status === "pending" ? (
+            <div className="w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl text-left" style={{ background: 'rgba(245,158,11,0.1)', border: '1px dashed rgba(245,158,11,0.35)' }}>
+              <Icon name="Clock" size={16} color="#f59e0b" />
+              <span className="text-sm font-medium text-white flex-1">Заявка на рассмотрении администрацией</span>
+            </div>
           ) : (
-            <button onClick={() => setView("request")} className="w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl text-left" style={{ background: 'rgba(239,68,68,0.1)', border: '1px dashed rgba(239,68,68,0.35)' }}>
+            <button onClick={() => { setRequestPhone(currentUser.phone || ""); setRequestAgreed(false); setView("request"); }} className="w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl text-left" style={{ background: 'rgba(239,68,68,0.1)', border: '1px dashed rgba(239,68,68,0.35)' }}>
               <Icon name="Video" size={16} color="#ef4444" />
               <span className="text-sm font-medium text-white flex-1">Хотите публиковать видео?</span>
               <Icon name="ChevronRight" size={15} color="rgba(239,68,68,0.6)" />
