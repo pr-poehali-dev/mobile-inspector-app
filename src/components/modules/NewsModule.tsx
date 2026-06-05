@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import AdminBlockButton from "@/components/AdminBlockButton";
@@ -15,12 +15,15 @@ interface NewsItem {
   authorId: number;
   authorName: string;
   image: string;
+  imageData?: string; // загруженное изображение новости (data-url)
   important: boolean;
   status: "published" | "draft";
 }
 
 interface BlogProfile {
   banner: string;
+  bannerImage?: string; // загруженное изображение баннера (data-url)
+  name?: string; // наименование блога
   description: string;
   location: string;
 }
@@ -71,11 +74,32 @@ export default function NewsModule({ onBack }: Props) {
   const [editing, setEditing] = useState<NewsItem | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [blogProfiles, setBlogProfiles] = useState<Record<number, BlogProfile>>({
-    3: { banner: BANNERS[2], description: "Инженер по пожарной безопасности. Делюсь актуальными новостями отрасли.", location: "Казань" },
-    4: { banner: BANNERS[0], description: "Главный редактор корпоративной новостной ленты.", location: "Екатеринбург" },
+    3: { banner: BANNERS[2], name: "Блог Петра Волкова", description: "Инженер по пожарной безопасности. Делюсь актуальными новостями отрасли.", location: "Казань" },
+    4: { banner: BANNERS[0], name: "Новостной центр", description: "Главный редактор корпоративной новостной ленты.", location: "Екатеринбург" },
   });
-  const [addForm, setAddForm] = useState({ title: "", text: "", category: (categories.news || [])[0] || "Иное", important: false });
-  const [settingsForm, setSettingsForm] = useState<BlogProfile>({ banner: BANNERS[0], description: "", location: currentUser.location });
+  const [addForm, setAddForm] = useState({ title: "", text: "", category: (categories.news || [])[0] || "Иное", important: false, imageData: "" });
+  const [settingsForm, setSettingsForm] = useState<BlogProfile>({ banner: BANNERS[0], bannerImage: "", name: "", description: "", location: currentUser.location });
+  const newsImageRef = useRef<HTMLInputElement>(null);
+  const bannerImageRef = useRef<HTMLInputElement>(null);
+  const [requestPhone, setRequestPhone] = useState(currentUser.phone || "");
+  const [requestAgreed, setRequestAgreed] = useState(false);
+
+  const handleNewsImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => setAddForm(prev => ({ ...prev, imageData: reader.result as string }));
+    reader.readAsDataURL(f);
+    e.target.value = "";
+  };
+  const handleBannerImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => setSettingsForm(prev => ({ ...prev, bannerImage: reader.result as string }));
+    reader.readAsDataURL(f);
+    e.target.value = "";
+  };
 
   const isEditor = isAdmin || hasRole("editor");
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
@@ -97,39 +121,71 @@ export default function NewsModule({ onBack }: Props) {
   const saveNews = () => {
     if (!addForm.title.trim() || !addForm.text.trim()) return;
     if (editing) {
-      setNews(prev => prev.map(n => n.id === editing.id ? { ...n, title: addForm.title, text: addForm.text, category: addForm.category, important: addForm.important } : n));
+      setNews(prev => prev.map(n => n.id === editing.id ? { ...n, title: addForm.title, text: addForm.text, category: addForm.category, important: addForm.important, imageData: addForm.imageData || n.imageData } : n));
       showToast("✅ Новость обновлена");
     } else {
-      const item: NewsItem = { id: Date.now(), title: addForm.title, text: addForm.text, category: addForm.category, date: new Date().toLocaleDateString("ru-RU"), authorId: currentUser.id, authorName: currentUser.name, image: IMG_GRADIENTS[Math.floor(Math.random() * IMG_GRADIENTS.length)], important: addForm.important, status: isEditor ? "published" : "draft" };
+      const item: NewsItem = { id: Date.now(), title: addForm.title, text: addForm.text, category: addForm.category, date: new Date().toLocaleDateString("ru-RU"), authorId: currentUser.id, authorName: currentUser.name, image: IMG_GRADIENTS[Math.floor(Math.random() * IMG_GRADIENTS.length)], imageData: addForm.imageData || undefined, important: addForm.important, status: isEditor ? "published" : "draft" };
       setNews(prev => [item, ...prev]);
       bumpStat("news", 1);
       showToast(isEditor ? "✅ Новость опубликована!" : "📝 Сохранено в «Мои новости»");
     }
-    setAddForm({ title: "", text: "", category: (categories.news || [])[0] || "Иное", important: false });
+    setAddForm({ title: "", text: "", category: (categories.news || [])[0] || "Иное", important: false, imageData: "" });
     setEditing(null);
     setView(isEditor ? "blog" : "list");
   };
 
   const deleteNews = (id: number) => { setNews(prev => prev.filter(n => n.id !== id)); bumpStat("news", -1); showToast("🗑️ Удалено"); };
-  const startEdit = (n: NewsItem) => { setEditing(n); setAddForm({ title: n.title, text: n.text, category: n.category, important: n.important }); setView("add"); };
+  const startEdit = (n: NewsItem) => { setEditing(n); setAddForm({ title: n.title, text: n.text, category: n.category, important: n.important, imageData: n.imageData || "" }); setView("add"); };
 
   // ── REQUEST EDITOR ──
-  if (view === "request") return (
-    <div className="min-h-screen relative z-10 animate-fade-in">
-      {toast && <Toast msg={toast} />}
-      <ModuleHeader title="Стать редактором" onBack={() => setView("list")} />
-      <div className="max-w-2xl mx-auto px-4 pt-8 pb-8 text-center space-y-6">
-        <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto" style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)' }}><Icon name="Newspaper" size={36} color="#f59e0b" /></div>
-        <div><h2 className="text-xl font-bold text-white mb-2" style={{ fontFamily: 'Montserrat, sans-serif' }}>Роль редактора</h2><p className="text-white/50 text-sm leading-relaxed">Получите право вести собственный новостной блог и публиковать новости в общую ленту.</p></div>
-        <div className="glass rounded-2xl p-4 text-left space-y-2.5">
-          {["Собственный новостной блог", "Баннер и описание блога", "Публикация в общую ленту", "Управление своими новостями"].map((item, i) => (
-            <div key={i} className="flex items-center gap-3"><div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(245,158,11,0.2)' }}><Icon name="Check" size={11} color="#f59e0b" /></div><span className="text-sm text-white/70">{item}</span></div>
-          ))}
+  if (view === "request") {
+    const phoneDigits = requestPhone.replace(/\D/g, "");
+    const canSubmit = phoneDigits.length >= 10 && requestAgreed;
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        {toast && <Toast msg={toast} />}
+        <ModuleHeader title="Стать редактором" onBack={() => setView("list")} />
+        <div className="max-w-2xl mx-auto px-4 pt-6 pb-8 space-y-5">
+          <div className="text-center space-y-3">
+            <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto" style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)' }}><Icon name="Newspaper" size={36} color="#f59e0b" /></div>
+            <div><h2 className="text-xl font-bold text-white mb-2" style={{ fontFamily: 'Montserrat, sans-serif' }}>Роль редактора</h2><p className="text-white/50 text-sm leading-relaxed">Получите право вести собственный новостной блог и публиковать новости в общую ленту.</p></div>
+          </div>
+          <div className="glass rounded-2xl p-4 text-left space-y-2.5">
+            {["Собственный новостной блог", "Баннер и описание блога", "Публикация в общую ленту", "Управление своими новостями"].map((item, i) => (
+              <div key={i} className="flex items-center gap-3"><div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(245,158,11,0.2)' }}><Icon name="Check" size={11} color="#f59e0b" /></div><span className="text-sm text-white/70">{item}</span></div>
+            ))}
+          </div>
+
+          {/* Стоимость — бесплатно */}
+          <div className="glass rounded-2xl p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(16,185,129,0.15)' }}><Icon name="Gift" size={20} color="#10b981" /></div>
+            <div className="flex-1"><p className="text-sm font-semibold text-white">Стоимость роли</p><p className="text-xs text-white/40">Активируется сразу после одобрения</p></div>
+            <span className="text-lg font-bold text-green-400">Бесплатно</span>
+          </div>
+
+          {/* Телефон */}
+          <div>
+            <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Номер телефона для обратной связи *</label>
+            <input className="input-field" type="tel" placeholder="+7 (___) ___-__-__" value={requestPhone} onChange={e => setRequestPhone(e.target.value)} />
+          </div>
+
+          {/* Юридическая инструкция */}
+          <div className="glass rounded-2xl p-4 flex items-start gap-3" style={{ border: '1px solid rgba(245,158,11,0.25)', background: 'rgba(245,158,11,0.08)' }}>
+            <Icon name="Info" size={16} color="#f59e0b" className="flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-yellow-200/80 leading-relaxed">Администрация рассматривает заявку и принимает решение об одобрении или отказе по собственному усмотрению. Решение администрации окончательно и не требует пояснений.</p>
+          </div>
+
+          {/* Чекбокс согласия */}
+          <button type="button" onClick={() => setRequestAgreed(a => !a)} className="w-full flex items-center gap-3 p-4 rounded-xl text-left transition-all" style={{ background: requestAgreed ? 'rgba(245,158,11,0.12)' : 'rgba(255,255,255,0.04)', border: requestAgreed ? '1px solid rgba(245,158,11,0.35)' : '1px solid rgba(255,255,255,0.1)' }}>
+            <div className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: requestAgreed ? '#f59e0b' : 'transparent', border: requestAgreed ? 'none' : '1px solid rgba(255,255,255,0.25)' }}>{requestAgreed && <Icon name="Check" size={12} color="white" />}</div>
+            <span className="text-sm text-white/80">Я ознакомлен и согласен с правилами подачи заявки</span>
+          </button>
+
+          <button className="btn-primary flex items-center justify-center gap-2 disabled:opacity-40" disabled={!canSubmit} onClick={() => { addRoleRequest("editor", requestPhone, false); showToast("📩 Заявка на роль редактора отправлена"); setRequestAgreed(false); setView("list"); }} style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}><Icon name="Send" size={18} />Отправить заявку</button>
         </div>
-        <button className="btn-primary flex items-center justify-center gap-2" onClick={() => { addRoleRequest("editor"); showToast("📩 Заявка на роль редактора отправлена"); setView("list"); }} style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}><Icon name="Send" size={18} />Отправить заявку</button>
       </div>
-    </div>
-  );
+    );
+  }
 
   // ── BLOG SETTINGS ──
   if (view === "blog_settings") return (
@@ -137,8 +193,20 @@ export default function NewsModule({ onBack }: Props) {
       {toast && <Toast msg={toast} />}
       <ModuleHeader title="Настройки блога" onBack={() => setView("blog")} icon="Settings" iconColor="#f59e0b" />
       <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
-        <div><label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Баннер блога</label>
-          <div className="rounded-2xl h-24 mb-2" style={{ background: settingsForm.banner }} />
+        <div>
+          <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Наименование блога</label>
+          <input className="input-field" placeholder="Например: Новости охраны труда" value={settingsForm.name || ""} onChange={e => setSettingsForm(f => ({ ...f, name: e.target.value }))} />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Баннер блога</label>
+          <div className="rounded-2xl h-28 mb-2 overflow-hidden relative" style={{ background: settingsForm.banner }}>
+            {settingsForm.bannerImage && <img src={settingsForm.bannerImage} alt="" className="w-full h-full object-cover" />}
+          </div>
+          <input ref={bannerImageRef} type="file" accept="image/*" className="hidden" onChange={handleBannerImage} />
+          <button onClick={() => bannerImageRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium mb-2" style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', color: '#f59e0b' }}>
+            <Icon name="ImagePlus" size={16} />{settingsForm.bannerImage ? "Заменить изображение баннера" : "Загрузить изображение баннера"}
+          </button>
+          {settingsForm.bannerImage && <button onClick={() => setSettingsForm(f => ({ ...f, bannerImage: "" }))} className="w-full text-xs text-white/40 hover:text-white/60 mb-2">Убрать изображение, использовать градиент</button>}
           <div className="flex gap-2">{BANNERS.map((b, i) => <button key={i} onClick={() => setSettingsForm(f => ({ ...f, banner: b }))} className="flex-1 h-10 rounded-xl transition-all" style={{ background: b, border: settingsForm.banner === b ? '2px solid white' : '2px solid transparent' }} />)}</div>
         </div>
         <div><label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Описание</label>
@@ -167,9 +235,11 @@ export default function NewsModule({ onBack }: Props) {
         <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
           <div className="rounded-2xl overflow-hidden">
             <div className="h-28 relative" style={{ background: profile.banner }}>
-              {isMyBlog && <button onClick={() => { setSettingsForm(profile); setView("blog_settings"); }} className="absolute top-3 right-3 px-3 py-1.5 rounded-lg text-xs font-medium text-white flex items-center gap-1.5" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)' }}><Icon name="Settings" size={13} color="white" />Настроить</button>}
+              {profile.bannerImage && <img src={profile.bannerImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+              {isMyBlog && <button onClick={() => { setSettingsForm({ banner: profile.banner, bannerImage: profile.bannerImage, name: profile.name, description: profile.description, location: profile.location }); setView("blog_settings"); }} className="absolute top-3 right-3 px-3 py-1.5 rounded-lg text-xs font-medium text-white flex items-center gap-1.5" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)' }}><Icon name="Settings" size={13} color="white" />Настроить</button>}
             </div>
             <div className="glass-strong p-4 -mt-8 mx-3 rounded-2xl relative">
+              {profile.name && <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg mb-2" style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)' }}><Icon name="Newspaper" size={12} color="#f59e0b" /><span className="text-xs font-semibold text-yellow-400">{profile.name}</span></div>}
               <div className="flex items-center gap-3">
                 <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 text-lg font-bold text-white border-2 border-white/20" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>{ownerAvatar}</div>
                 <div className="flex-1">
@@ -226,7 +296,18 @@ export default function NewsModule({ onBack }: Props) {
           <div className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: addForm.important ? '#ef4444' : 'transparent', border: addForm.important ? 'none' : '1px solid rgba(255,255,255,0.25)' }}>{addForm.important && <Icon name="Check" size={12} color="white" />}</div>
           <div><p className="text-sm font-medium text-white text-left">Важная новость</p><p className="text-xs text-white/40 text-left">Будет выделена меткой</p></div>
         </button>
-        <div className="flex items-center gap-3 p-4 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px dashed rgba(255,255,255,0.15)' }}><Icon name="ImageIcon" size={18} color="rgba(255,255,255,0.4)" /><span className="text-sm text-white/40">Загрузить изображение</span></div>
+        <div>
+          <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Изображение новости</label>
+          <input ref={newsImageRef} type="file" accept="image/*" className="hidden" onChange={handleNewsImage} />
+          {addForm.imageData ? (
+            <div className="rounded-xl overflow-hidden relative" style={{ aspectRatio: '16/7' }}>
+              <img src={addForm.imageData} alt="" className="w-full h-full object-cover" />
+              <button onClick={() => setAddForm(f => ({ ...f, imageData: "" }))} className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}><Icon name="X" size={15} color="white" /></button>
+            </div>
+          ) : (
+            <button onClick={() => newsImageRef.current?.click()} className="w-full flex items-center gap-3 p-4 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px dashed rgba(255,255,255,0.15)' }}><Icon name="ImagePlus" size={18} color="rgba(255,255,255,0.4)" /><span className="text-sm text-white/40">Загрузить изображение</span></button>
+          )}
+        </div>
         {!isEditor && <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)' }}><Icon name="Info" size={15} color="#f59e0b" /><p className="text-xs text-yellow-300/80">Сохранится в черновики. Для публикации нужна роль редактора.</p></div>}
         <button onClick={saveNews} className="btn-primary flex items-center justify-center gap-2" disabled={!addForm.title.trim() || !addForm.text.trim()} style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}><Icon name={editing ? "Check" : isEditor ? "Send" : "Save"} size={18} />{editing ? "Сохранить" : isEditor ? "Опубликовать" : "В черновики"}</button>
       </div>
@@ -242,7 +323,7 @@ export default function NewsModule({ onBack }: Props) {
         <ModuleHeader title={selected.category} onBack={() => setView("list")} />
         <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
           {selected.important && <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)' }}><Icon name="AlertTriangle" size={15} color="#ef4444" /><span className="text-sm text-red-400 font-medium">Важная новость</span></div>}
-          <div className="rounded-2xl overflow-hidden" style={{ background: selected.image, aspectRatio: '16/7' }}><div className="w-full h-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.2)' }}><Icon name="Newspaper" size={36} color="rgba(255,255,255,0.2)" /></div></div>
+          <div className="rounded-2xl overflow-hidden" style={{ background: selected.image, aspectRatio: '16/7' }}>{selected.imageData ? <img src={selected.imageData} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.2)' }}><Icon name="Newspaper" size={36} color="rgba(255,255,255,0.2)" /></div>}</div>
           <h1 className="text-xl font-bold text-white" style={{ fontFamily: 'Montserrat, sans-serif' }}>{selected.title}</h1>
           <button onClick={() => { if (authorIsEditor) { setViewedAuthorId(selected.authorId); setView("blog"); } }} disabled={!authorIsEditor} className="w-full flex items-center gap-3 p-3 rounded-2xl text-left transition-all hover:bg-white/5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-sm font-bold text-white" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>{author?.avatar || selected.authorName[0]}</div>
@@ -265,10 +346,11 @@ export default function NewsModule({ onBack }: Props) {
             <button onClick={onBack} className="p-2 rounded-xl hover:bg-white/10 transition-colors flex-shrink-0"><Icon name="ArrowLeft" size={20} color="white" /></button>
             <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(245,158,11,0.2)', border: '1px solid rgba(245,158,11,0.3)' }}><Icon name="Newspaper" size={16} color="#f59e0b" /></div>
             <h1 className="text-base font-bold text-white flex-1">Новостная лента</h1>
-            <button onClick={() => { if (isEditor) { setViewedAuthorId(null); setView("blog"); } else { setView("request"); } }} className="p-2 rounded-xl hover:bg-white/10 transition-colors">
+            <button onClick={() => { if (isEditor) { setViewedAuthorId(null); setView("blog"); } else { setRequestPhone(currentUser.phone || ""); setRequestAgreed(false); setView("request"); } }} className="p-2 rounded-xl hover:bg-white/10 transition-colors">
               <Icon name="BookOpen" size={18} color={isEditor ? "#f59e0b" : "rgba(255,255,255,0.6)"} />
             </button>
-            <button onClick={() => { setEditing(null); setView("add"); }} className="p-2 rounded-xl hover:bg-white/10 transition-colors"><Icon name="Plus" size={20} color="white" /></button>
+            {/* Иконку «+» (добавить новость) видят только редакторы */}
+            {isEditor && <button onClick={() => { setEditing(null); setView("add"); }} className="p-2 rounded-xl hover:bg-white/10 transition-colors"><Icon name="Plus" size={20} color="white" /></button>}
           </div>
           <div className="relative">
             <Icon name="Search" size={15} color="rgba(255,255,255,0.3)" className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -296,6 +378,7 @@ export default function NewsModule({ onBack }: Props) {
             <div key={item.id} className="relative w-full glass rounded-2xl overflow-hidden animate-fade-up opacity-0 hover:border-white/20 transition-all" style={{ animationDelay: `${i * 0.05}s`, animationFillMode: 'forwards' }}>
               <button onClick={() => { setSelected(item); setView("detail"); }} className="w-full text-left">
                 <div className="relative" style={{ background: item.image, height: '80px' }}>
+                  {item.imageData && <img src={item.imageData} alt="" className="absolute inset-0 w-full h-full object-cover" />}
                   <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.25)' }} />
                   <div className="absolute top-2 left-2 flex gap-2">
                     <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: `${getCatColor(item.category)}90`, color: 'white' }}>{item.category.split(" ")[0]}</span>

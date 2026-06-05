@@ -1,6 +1,8 @@
 import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
+import { useApp } from "@/context/AppContext";
+import SchoolAdmin from "./learning/SchoolAdmin";
 
 interface Props { onBack: () => void; }
 
@@ -18,12 +20,25 @@ const QUESTIONS = [
 ];
 
 export default function LearningModule({ onBack }: Props) {
+  const { isAdmin } = useApp();
   const [view, setView] = useState<"list" | "course" | "lesson" | "test" | "cert">("list");
+  const [school, setSchool] = useState(false); // режим администратора школы
   const [selectedCourse, setSelectedCourse] = useState<typeof COURSES[0] | null>(null);
   const [testAnswers, setTestAnswers] = useState<Record<number, number>>({});
   const [testDone, setTestDone] = useState(false);
   const [activeLessonIdx, setActiveLessonIdx] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1); // скорость видео ученика
+  const [hwText, setHwText] = useState("");
+  const [hwFile, setHwFile] = useState("");
+  const [chatInput, setChatInput] = useState("");
+  const [chatMsgs, setChatMsgs] = useState<{ author: string; text: string; me?: boolean; curator?: boolean }[]>([
+    { author: "Анна (куратор)", text: "Добро пожаловать на курс! Задавайте вопросы здесь.", curator: true },
+    { author: "Сергей", text: "Подскажите, где скачать методичку?" },
+  ]);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Режим администратора школы (конструктор курсов, ученики, проверка ДЗ, аналитика)
+  if (school) return <SchoolAdmin onBack={() => setSchool(false)} />;
 
   const score = QUESTIONS.filter(q => testAnswers[q.id] === q.correct).length;
   const submitTest = () => setTestDone(true);
@@ -43,6 +58,34 @@ export default function LearningModule({ onBack }: Props) {
       <div className="min-h-screen relative z-10 animate-fade-in">
         <ModuleHeader title={`Урок ${activeLessonIdx + 1}`} onBack={() => setView("course")} subtitle={selectedCourse.title} />
         <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
+          {/* Боковое меню со структурой курса */}
+          <div className="glass rounded-2xl p-3 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
+            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-2 px-1">Структура курса</p>
+            <div className="space-y-1">
+              {Array.from({ length: selectedCourse.lessons }).map((_, i) => {
+                const done = i < Math.floor(selectedCourse.lessons * selectedCourse.progress / 100);
+                const isCurrent = i === activeLessonIdx;
+                return (
+                  <button key={i} onClick={() => setActiveLessonIdx(i)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left" style={{ background: isCurrent ? 'rgba(59,130,246,0.15)' : 'transparent' }}>
+                    <Icon name={done ? "CheckCircle" : isCurrent ? "PlayCircle" : "Circle"} size={14} color={done ? "#10b981" : isCurrent ? "#3b82f6" : "rgba(255,255,255,0.3)"} />
+                    <span className="text-xs flex-1 truncate" style={{ color: isCurrent ? 'white' : 'rgba(255,255,255,0.5)' }}>Урок {i + 1}</span>
+                    <span className="text-xs" style={{ color: done ? '#10b981' : 'rgba(255,255,255,0.3)' }}>{done ? "Просмотрено" : isCurrent ? "Открыт" : "Не открыто"}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Видеоплеер с ускорением */}
+          <div className="rounded-2xl overflow-hidden relative animate-fade-up opacity-0" style={{ aspectRatio: '16/9', background: 'linear-gradient(135deg, #1e293b, #0f172a)', animationFillMode: 'forwards' }}>
+            <div className="absolute inset-0 flex items-center justify-center"><div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.9)' }}><Icon name="Play" size={28} color="white" /></div></div>
+            <div className="absolute bottom-2 right-2 flex gap-1">
+              {[1, 1.5, 2].map(rate => (
+                <button key={rate} onClick={() => { setPlaybackRate(rate); showToast(`Скорость ${rate}x`); }} className="px-2 py-1 rounded-lg text-xs font-medium" style={{ background: playbackRate === rate ? 'rgba(59,130,246,0.9)' : 'rgba(0,0,0,0.6)', color: 'white' }}>{rate}x</button>
+              ))}
+            </div>
+          </div>
+
           <div className="glass-strong rounded-2xl p-5 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
             <h2 className="text-base font-bold text-white mb-3">{lessonName}</h2>
             <p className="text-sm text-white/70 leading-relaxed">{lessonText}</p>
@@ -140,6 +183,35 @@ export default function LearningModule({ onBack }: Props) {
               </div>
               <h2 className="text-2xl font-bold text-white mb-2">{score >= 2 ? "Тест пройден!" : "Попробуйте снова"}</h2>
               <p className="text-white/60 mb-6">Правильных ответов: {score} из {QUESTIONS.length}</p>
+
+              {/* Разбор ответов: правильные/неправильные */}
+              <div className="space-y-3 text-left mb-6">
+                {QUESTIONS.map((q, qi) => {
+                  const userAns = testAnswers[q.id];
+                  const isCorrect = userAns === q.correct;
+                  return (
+                    <div key={q.id} className="glass rounded-2xl p-4" style={{ border: `1px solid ${isCorrect ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
+                      <div className="flex items-start gap-2 mb-2">
+                        <Icon name={isCorrect ? "CheckCircle" : "XCircle"} size={16} color={isCorrect ? "#10b981" : "#ef4444"} className="flex-shrink-0 mt-0.5" />
+                        <p className="text-sm font-semibold text-white">{qi + 1}. {q.text}</p>
+                      </div>
+                      <div className="space-y-1 pl-6">
+                        {q.options.map((opt, oi) => {
+                          const isUser = userAns === oi;
+                          const isRight = q.correct === oi;
+                          return (
+                            <div key={oi} className="flex items-center gap-2 text-sm" style={{ color: isRight ? '#10b981' : isUser ? '#ef4444' : 'rgba(255,255,255,0.4)' }}>
+                              {isRight ? <Icon name="Check" size={13} color="#10b981" /> : isUser ? <Icon name="X" size={13} color="#ef4444" /> : <span className="w-3" />}
+                              <span>{opt}{isRight && " — правильный ответ"}{isUser && !isRight && " — ваш ответ"}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
               {score >= 2 ? (
                 <button onClick={() => { setView("cert"); }} className="btn-primary flex items-center justify-center gap-2 max-w-xs mx-auto">
                   <Icon name="Award" size={18} />Получить сертификат
@@ -226,6 +298,35 @@ export default function LearningModule({ onBack }: Props) {
               <Icon name="Award" size={16} color="#f59e0b" />Открыть сертификат
             </button>
           )}
+
+          {/* Сдача домашнего задания */}
+          <div className="glass rounded-2xl p-4">
+            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2"><Icon name="PenSquare" size={13} color="#f59e0b" />Сдать домашнее задание</p>
+            <textarea className="input-field text-sm resize-none mb-2" rows={3} placeholder="Ответ на задание..." value={hwText} onChange={e => setHwText(e.target.value)} />
+            <div className="flex gap-2">
+              <button onClick={() => { setHwFile(hwFile ? "" : "моя_работа.pdf"); }} className="flex-1 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5" style={{ background: hwFile ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.06)', color: hwFile ? '#60a5fa' : 'rgba(255,255,255,0.6)' }}><Icon name="Paperclip" size={13} />{hwFile || "Прикрепить файл"}</button>
+              <button onClick={() => { if (hwText.trim()) { showToast("✅ Задание отправлено на проверку"); setHwText(""); setHwFile(""); } }} disabled={!hwText.trim()} className="flex-1 py-2 rounded-xl text-xs font-medium text-white disabled:opacity-40 flex items-center justify-center gap-1.5" style={{ background: 'linear-gradient(135deg,#3b82f6,#2563eb)' }}><Icon name="Send" size={13} />Отправить</button>
+            </div>
+          </div>
+
+          {/* Встроенный чат курса (как в Skillspace) */}
+          <div className="glass rounded-2xl p-4">
+            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2"><Icon name="MessageSquare" size={13} color="#10b981" />Чат курса · куратор и ученики</p>
+            <div className="space-y-2.5 mb-3 max-h-48 overflow-y-auto">
+              {chatMsgs.map((m, i) => (
+                <div key={i} className={`flex ${m.me ? "justify-end" : "justify-start"}`}>
+                  <div className="max-w-[80%] px-3 py-2 rounded-2xl" style={{ background: m.me ? 'linear-gradient(135deg,#3b82f6,#2563eb)' : 'rgba(255,255,255,0.06)' }}>
+                    {!m.me && <p className="text-xs font-semibold mb-0.5" style={{ color: m.curator ? '#f59e0b' : '#94a3b8' }}>{m.author}{m.curator && " · Куратор"}</p>}
+                    <p className="text-sm text-white">{m.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input className="input-field text-sm py-2.5 flex-1" placeholder="Сообщение в чат курса..." value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && chatInput.trim()) { setChatMsgs(prev => [...prev, { author: "Вы", text: chatInput, me: true }]); setChatInput(""); } }} />
+              <button onClick={() => { if (chatInput.trim()) { setChatMsgs(prev => [...prev, { author: "Вы", text: chatInput, me: true }]); setChatInput(""); } }} className="p-2.5 rounded-xl flex-shrink-0" style={{ background: 'linear-gradient(135deg,#10b981,#059669)' }}><Icon name="Send" size={18} color="white" /></button>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -233,7 +334,15 @@ export default function LearningModule({ onBack }: Props) {
 
   return (
     <div className="min-h-screen relative z-10 animate-fade-in">
-      <ModuleHeader title="Обучение" onBack={onBack} subtitle={`${COURSES.length} курса`} icon="GraduationCap" iconColor="#3b82f6" />
+      {toast && <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-2xl text-sm font-medium text-white animate-fade-up" style={{ background: 'rgba(59,130,246,0.9)', backdropFilter: 'blur(12px)' }}>{toast}</div>}
+      <div className="glass border-b border-white/10 px-4 py-3 sticky top-0 z-20">
+        <div className="max-w-2xl mx-auto flex items-center gap-2">
+          <button onClick={onBack} className="p-2 rounded-xl hover:bg-white/10 transition-colors flex-shrink-0"><Icon name="ArrowLeft" size={20} color="white" /></button>
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.3)' }}><Icon name="GraduationCap" size={16} color="#3b82f6" /></div>
+          <div className="flex-1"><h1 className="text-base font-bold text-white">Обучение · Библиотека</h1><p className="text-xs text-white/40">{COURSES.length} курса</p></div>
+          {isAdmin && <button onClick={() => setSchool(true)} className="px-3 h-9 rounded-xl flex items-center gap-1.5" style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}><Icon name="Settings" size={15} color="white" /><span className="text-xs font-semibold text-white">Школа</span></button>}
+        </div>
+      </div>
       <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
         {COURSES.map((course, i) => (
           <button key={course.id} onClick={() => { setSelectedCourse(course); setView("course"); }} className={`w-full text-left card-module animate-fade-up opacity-0`} style={{ animationDelay: `${0.05 + i * 0.07}s`, animationFillMode: 'forwards' }}>

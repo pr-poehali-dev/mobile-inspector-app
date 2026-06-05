@@ -10,6 +10,7 @@ const ROLE_BADGE: Record<string, { label: string; color: string; icon: string }>
   content_maker: { label: "Контентмейкер", color: "#ec4899", icon: "Video" },
   editor: { label: "Редактор", color: "#f59e0b", icon: "Newspaper" },
   documentor: { label: "Документовед", color: "#10b981", icon: "FolderOpen" },
+  executor: { label: "Исполнитель", color: "#8b5cf6", icon: "Briefcase" },
   user: { label: "Пользователь", color: "#3b82f6", icon: "User" },
 };
 

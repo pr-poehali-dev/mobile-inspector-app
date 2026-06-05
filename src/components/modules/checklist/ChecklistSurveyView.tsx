@@ -136,6 +136,10 @@ export default function ChecklistSurveyView(props: Props) {
                       <span className="text-xs text-white/60">Загрузить файл</span>
                     </button>
                   </div>
+                  {/* Кнопка «Сохранить» — возвращает к текущему вопросу, не закрывая прогресс */}
+                  <button onClick={() => setActiveModal(null)} className="btn-primary w-full mt-4 text-sm py-3 flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)' }}>
+                    <Icon name="Check" size={16} />Сохранить и вернуться к вопросу
+                  </button>
                 </>
               )}
               {activeModal.type === "result" && (

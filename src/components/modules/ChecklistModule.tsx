@@ -175,6 +175,7 @@ export default function ChecklistModule({ onBack }: Props) {
     <div class="subtitle">${selectedSphere?.title || ""}${selectedArea ? " → " + selectedArea.title : ""}</div>
   </div>
   <div class="meta">
+    <div class="meta-item"><div class="meta-label">Наименование проверяемого объекта</div><div class="meta-value">${objectName || "—"}</div></div>
     <div class="meta-item"><div class="meta-label">Дата проверки</div><div class="meta-value">${dateStr}</div></div>
     <div class="meta-item"><div class="meta-label">Время</div><div class="meta-value">${timeStr}</div></div>
     <div class="meta-item"><div class="meta-label">Всего вопросов</div><div class="meta-value">${totalQ}</div></div>
@@ -202,7 +203,7 @@ export default function ChecklistModule({ onBack }: Props) {
     win.document.close();
     win.focus();
     setTimeout(() => win.print(), 400);
-  }, [selectedChecklist, selectedSphere, selectedArea, questionStates]);
+  }, [selectedChecklist, selectedSphere, selectedArea, questionStates, objectName]);
 
   const handleSendEmail = () => {
     if (!emailInput.trim()) return;

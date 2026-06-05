@@ -12,6 +12,7 @@ const ROLE_LABELS: Record<string, { label: string; color: string; icon: string }
   content_maker: { label: "Контентмейкер", color: "#ec4899", icon: "Video" },
   editor: { label: "Редактор", color: "#f59e0b", icon: "Newspaper" },
   documentor: { label: "Документовед", color: "#10b981", icon: "FolderOpen" },
+  executor: { label: "Исполнитель", color: "#8b5cf6", icon: "Briefcase" },
   user: { label: "Пользователь", color: "#3b82f6", icon: "User" },
 };
 
@@ -23,7 +24,7 @@ const SECTIONS = [
   { key: "learning", label: "Обучение", icon: "GraduationCap", color: "#3b82f6" },
 ];
 
-const GRANTABLE: UserRole[] = ["content_maker", "editor", "documentor", "admin"];
+const GRANTABLE: UserRole[] = ["content_maker", "editor", "documentor", "executor", "admin"];
 
 // Demo content registry for moderation tab
 const DEMO_CONTENT = [
