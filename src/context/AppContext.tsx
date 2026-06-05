@@ -134,6 +134,11 @@ interface AppContextType {
   blockContent: (kind: ContentKind, id: number | string, authorId?: number) => void;
   unblockContent: (kind: ContentKind, id: number | string) => void;
 
+  // purchased documents (доступны навсегда)
+  purchasedDocs: number[];
+  purchaseDoc: (docId: number) => void;
+  isDocPurchased: (docId: number) => boolean;
+
   // per-user content counters (live)
   myStats: AppStats;
   bumpStat: (key: keyof AppStats, delta?: number) => void;
@@ -204,6 +209,7 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
     { id: 2, userId: 2, userName: "Анна Козлова", phone: "79992223344", subject: "Вопрос по загрузке видео", text: "Какой максимальный размер файла для загрузки видео?", date: "02.06.2026 16:40", status: "answered", replies: [{ from: "admin", text: "Здравствуйте! Максимальный размер — 2 ГБ.", date: "02.06.2026 17:02" }] },
   ]);
   const [blockedContent, setBlockedContent] = useState<BlockedContentRef[]>([]);
+  const [purchasedDocs, setPurchasedDocs] = useState<number[]>([]);
   const [myStats, setMyStats] = useState<AppStats>({ videos: 0, news: 0, documents: 12, courses: 2, tickets: 3, checklists: 5 });
   const [categories, setCategories] = useState<Record<string, string[]>>(DEFAULT_CATEGORIES);
   const [theme, setThemeState] = useState<ThemeMode>("dark");
@@ -312,6 +318,9 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
   };
   const unblockContent = (kind: ContentKind, id: number | string) => setBlockedContent(prev => prev.filter(b => !(b.kind === kind && String(b.id) === String(id))));
 
+  const purchaseDoc = (docId: number) => setPurchasedDocs(prev => prev.includes(docId) ? prev : [...prev, docId]);
+  const isDocPurchased = (docId: number) => purchasedDocs.includes(docId);
+
   const bumpStat = (key: keyof AppStats, delta = 1) => setMyStats(prev => ({ ...prev, [key]: Math.max(0, prev[key] + delta) }));
 
   const addCategory = (section: string, name: string) => {
@@ -345,6 +354,7 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
     paymentServices, addPaymentService, updatePaymentService, removePaymentService,
     supportMessages, addSupportMessage, replySupportMessage,
     blockedContent, isContentBlocked, blockContent, unblockContent,
+    purchasedDocs, purchaseDoc, isDocPurchased,
     myStats, bumpStat,
     categories, addCategory, removeCategory,
     theme, setTheme, lang, setLang,
