@@ -47,6 +47,7 @@ export default function AdminPanel({ onBack }: Props) {
 
   const [tab, setTab] = useState<Tab>("stats");
   const [userSearch, setUserSearch] = useState("");
+  const [contentSearch, setContentSearch] = useState("");
   const [catSection, setCatSection] = useState("video");
   const [newCat, setNewCat] = useState("");
   const [toast, setToast] = useState<string | null>(null);
@@ -389,7 +390,11 @@ export default function AdminPanel({ onBack }: Props) {
               <Icon name="Info" size={14} color="#ef4444" className="flex-shrink-0 mt-0.5" />
               <p className="text-xs text-red-300/80">При блокировке контент скрывается от всех пользователей, а автору приходит уведомление о нарушении правил.</p>
             </div>
-            {DEMO_CONTENT.map(c => {
+            <div className="relative">
+              <Icon name="Search" size={15} color="rgba(255,255,255,0.3)" className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input className="input-field pl-9 text-sm py-2.5" placeholder="Поиск по названию или автору..." value={contentSearch} onChange={e => setContentSearch(e.target.value)} />
+            </div>
+            {DEMO_CONTENT.filter(c => c.title.toLowerCase().includes(contentSearch.toLowerCase()) || c.author.toLowerCase().includes(contentSearch.toLowerCase())).map(c => {
               const blocked = isContentBlocked(c.kind, c.id);
               return (
                 <div key={`${c.kind}-${c.id}`} className="glass rounded-2xl p-4">
@@ -414,6 +419,7 @@ export default function AdminPanel({ onBack }: Props) {
                 </div>
               );
             })}
+            {DEMO_CONTENT.filter(c => c.title.toLowerCase().includes(contentSearch.toLowerCase()) || c.author.toLowerCase().includes(contentSearch.toLowerCase())).length === 0 && <div className="text-center py-12 text-white/30 text-sm">Ничего не найдено</div>}
           </div>
         )}
 

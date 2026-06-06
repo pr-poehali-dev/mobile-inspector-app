@@ -182,38 +182,83 @@ const INITIAL_USERS: AppUser[] = [
 
 const AppContext = createContext<AppContextType | null>(null);
 
+// ── Персистентность: сохраняем состояние приложения в localStorage ──
+// Ключи версионированы, чтобы при изменении структуры можно было сбросить кэш.
+const LS_PREFIX = "mi_app_v1_";
+function loadStored<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(LS_PREFIX + key);
+    if (raw != null) return JSON.parse(raw) as T;
+  } catch { /* ignore */ }
+  return fallback;
+}
+function saveStored<T>(key: string, value: T) {
+  try { localStorage.setItem(LS_PREFIX + key, JSON.stringify(value)); } catch { /* ignore quota */ }
+}
+/** useState с автосохранением в localStorage (сигнатура как у useState). */
+function useStored<T>(key: string, initial: T | (() => T)): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const [value, setValue] = useState<T>(() => {
+    const fallback = typeof initial === "function" ? (initial as () => T)() : initial;
+    return loadStored(key, fallback);
+  });
+  useEffect(() => { saveStored(key, value); }, [key, value]);
+  return [value, setValue];
+}
+
 export function AppProvider({ children, initialUser }: { children: ReactNode; initialUser: AppUser }) {
-  const [users, setUsers] = useState<AppUser[]>(() => {
+  // Пользователи: восстанавливаем из localStorage, затем гарантируем наличие текущего (вошедшего)
+  const [users, setUsers] = useStored<AppUser[]>("users", () => {
     const exists = INITIAL_USERS.find(u => u.phone === initialUser.phone);
     return exists ? INITIAL_USERS.map(u => u.phone === initialUser.phone ? initialUser : u) : [...INITIAL_USERS, initialUser];
   });
-  const [currentUser, setCurrentUserState] = useState<AppUser>(initialUser);
-  const [roleRequests, setRoleRequests] = useState<RoleRequest[]>([
+  // currentUser инициализируем из сохранённого списка по телефону (восстановление прогресса)
+  const [currentUser, setCurrentUserState] = useState<AppUser>(() => {
+    const stored = loadStored<AppUser[]>("users", []);
+    return stored.find(u => u.phone === initialUser.phone) || initialUser;
+  });
+  // При входе синхронизируем текущего пользователя со списком (по телефону) — без потери сохранённого прогресса
+  useEffect(() => {
+    setUsers(prev => {
+      const found = prev.find(u => u.phone === initialUser.phone);
+      if (found) { setCurrentUserState(found); return prev; }
+      const created = { ...initialUser, id: Math.max(0, ...prev.map(u => u.id)) + 1 };
+      setCurrentUserState(created);
+      return [...prev, created];
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialUser.phone]);
+  const [roleRequests, setRoleRequests] = useStored<RoleRequest[]>("roleRequests", [
     { id: 1, userId: 5, userName: "Сергей Смирнов", phone: "79995556677", role: "content_maker", date: "02.06.2026", status: "pending" },
   ]);
-  const [roleGrants, setRoleGrants] = useState<RoleGrant[]>([
+  const [roleGrants, setRoleGrants] = useStored<RoleGrant[]>("roleGrants", [
     { userId: 2, role: "content_maker", validUntil: "15.07.2026", grantedAt: "15.06.2026" },
     { userId: 3, role: "content_maker", validUntil: "20.07.2026", grantedAt: "20.06.2026" },
     { userId: 3, role: "editor", validUntil: "20.07.2026", grantedAt: "20.06.2026" },
     { userId: 4, role: "editor", validUntil: "10.07.2026", grantedAt: "10.06.2026" },
     { userId: 4, role: "documentor", validUntil: "10.07.2026", grantedAt: "10.06.2026" },
   ]);
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [paymentServices, setPaymentServices] = useState<PaymentService[]>([
+  const [notifications, setNotifications] = useStored<AppNotification[]>("notifications", []);
+  const [paymentServices, setPaymentServices] = useStored<PaymentService[]>("paymentServices", [
     { id: 1, name: "Роль «Контентмейкер» (месяц)", requisites: "ООО «Мобильный Инспектор»\nР/с: 40702810000000012345\nБИК: 044525225\nИНН: 7700000000", qrUrl: "", instruction: "Оплатите по реквизитам или QR-коду. В назначении укажите номер телефона и название роли. Доступ активируется в течение 1 часа.", price: 990, enabled: true },
     { id: 2, name: "Роль «Редактор» (месяц)", requisites: "ООО «Мобильный Инспектор»\nР/с: 40702810000000012345\nБИК: 044525225", qrUrl: "", instruction: "Оплатите по реквизитам. В назначении укажите телефон.", price: 790, enabled: true },
     { id: 3, name: "Роль «Документовед» (месяц)", requisites: "ООО «Мобильный Инспектор»\nР/с: 40702810000000012345\nБИК: 044525225", qrUrl: "", instruction: "Оплатите по реквизитам. В назначении укажите телефон.", price: 1290, enabled: false },
   ]);
-  const [supportMessages, setSupportMessages] = useState<SupportMessage[]>([
+  const [supportMessages, setSupportMessages] = useStored<SupportMessage[]>("supportMessages", [
     { id: 1, userId: 1, userName: "Иван Петров", phone: "79991112233", subject: "Не приходит SMS-код", text: "Здравствуйте! Не могу войти — код подтверждения не приходит на телефон. Что делать?", date: "03.06.2026 10:14", status: "new", replies: [] },
     { id: 2, userId: 2, userName: "Анна Козлова", phone: "79992223344", subject: "Вопрос по загрузке видео", text: "Какой максимальный размер файла для загрузки видео?", date: "02.06.2026 16:40", status: "answered", replies: [{ from: "admin", text: "Здравствуйте! Максимальный размер — 2 ГБ.", date: "02.06.2026 17:02" }] },
   ]);
-  const [blockedContent, setBlockedContent] = useState<BlockedContentRef[]>([]);
-  const [purchasedDocs, setPurchasedDocs] = useState<number[]>([]);
-  const [myStats, setMyStats] = useState<AppStats>({ videos: 0, news: 0, documents: 12, courses: 2, tickets: 3, checklists: 5 });
-  const [categories, setCategories] = useState<Record<string, string[]>>(DEFAULT_CATEGORIES);
-  const [theme, setThemeState] = useState<ThemeMode>("dark");
-  const [lang, setLang] = useState<Lang>("ru");
+  const [blockedContent, setBlockedContent] = useStored<BlockedContentRef[]>("blockedContent", []);
+  const [purchasedDocs, setPurchasedDocs] = useStored<number[]>("purchasedDocs", []);
+  const [myStats, setMyStats] = useStored<AppStats>("myStats", { videos: 0, news: 0, documents: 12, courses: 2, tickets: 3, checklists: 5 });
+  const [categories, setCategories] = useStored<Record<string, string[]>>("categories", DEFAULT_CATEGORIES);
+  const [theme, setThemeState] = useStored<ThemeMode>("theme", "dark");
+  const [lang, setLang] = useStored<Lang>("lang", "ru");
+  // Реальный счётчик посещений — увеличивается один раз за сессию приложения
+  const [totalVisits, setTotalVisits] = useStored<number>("totalVisits", 0);
+  useEffect(() => {
+    setTotalVisits(v => v + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const setCurrentUser = (u: AppUser) => {
     setCurrentUserState(u);
@@ -359,7 +404,7 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
     categories, addCategory, removeCategory,
     theme, setTheme, lang, setLang,
     activeUsers: users.filter(u => !u.blocked).length,
-    totalVisits: 3847,
+    totalVisits,
     isAdmin, hasRole,
   };
 

@@ -110,6 +110,8 @@ export default function RFPModule({ onBack }: Props) {
   const [requestPhone, setRequestPhone] = useState(currentUser.phone || "");
   const [requestAgreed, setRequestAgreed] = useState(false);
   const [supplierForm, setSupplierForm] = useState<Supplier | null>(null);
+  // Окно контакта с выбранным победителем
+  const [winnerContact, setWinnerContact] = useState<{ company: string; supplierId: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
@@ -373,7 +375,7 @@ export default function RFPModule({ onBack }: Props) {
                         <Mini label="Срок" value={p.delivery} highlight={best?.fast.id === p.id} color="#06b6d4" />
                         <Mini label="Рейтинг" value={`${p.rating.toFixed(1)}★`} highlight={best?.rating.id === p.id} color="#facc15" />
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 mb-3">
                         <button onClick={() => showToast(`📄 Открываю ${p.file}`)} className="text-xs text-blue-400 flex items-center gap-1"><Icon name="Paperclip" size={11} />{p.file}</button>
                         <div className="flex items-center gap-0.5 ml-auto">
                           {[1, 2, 3, 4, 5].map(star => (
@@ -381,6 +383,10 @@ export default function RFPModule({ onBack }: Props) {
                           ))}
                         </div>
                       </div>
+                      {/* Кнопка выбора победителя — внутри карточки поставщика */}
+                      <button onClick={() => setWinnerContact({ company: p.company, supplierId: p.supplierId })} className="w-full py-2.5 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)' }}>
+                        <Icon name="Award" size={16} />Выбрать победителем
+                      </button>
                     </div>
                   );
                 })}
@@ -394,10 +400,31 @@ export default function RFPModule({ onBack }: Props) {
                   <div className="flex items-center gap-2"><Icon name="Zap" size={14} color="#06b6d4" /><p className="text-sm text-white">Быстрее всех: <span className="text-cyan-400 font-medium">{best.fast.company} — {best.fast.delivery}</span></p></div>
                 </div>
               )}
-              <button onClick={() => showToast("✅ Победитель выбран, поставщик уведомлён")} className="btn-primary flex items-center justify-center gap-2"><Icon name="Award" size={18} />Выбрать победителя</button>
             </>
           )}
         </div>
+
+        {/* Окно контакта с победителем */}
+        {winnerContact && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }} onClick={() => setWinnerContact(null)}>
+            <div className="w-full max-w-md mx-4 mb-4 sm:mb-0 glass-strong rounded-3xl p-6 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }} onClick={e => e.stopPropagation()}>
+              <div className="flex items-center gap-2 mb-1"><div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.2)' }}><Icon name="Award" size={16} color="#8b5cf6" /></div><h3 className="text-base font-bold text-white">Связаться с поставщиком</h3></div>
+              <p className="text-xs text-white/40 mb-4">{winnerContact.company}</p>
+              <div className="space-y-2">
+                <button onClick={() => { const s = supplierOf(winnerContact.supplierId); const phone = (s?.contacts || "").match(/[+\d][\d\s()-]{7,}/)?.[0]?.replace(/[\s()-]/g, "") || ""; if (phone) window.location.href = `tel:${phone}`; else showToast("Телефон не указан"); }} className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left" style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)' }}>
+                  <Icon name="Phone" size={18} color="#10b981" /><span className="text-sm font-medium text-white flex-1">Позвонить поставщику</span><Icon name="ChevronRight" size={15} color="rgba(255,255,255,0.3)" />
+                </button>
+                <button onClick={() => { setWinnerContact(null); showToast(`💬 Чат с «${winnerContact.company}» открыт`); }} className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left" style={{ background: 'rgba(27,111,255,0.12)', border: '1px solid rgba(27,111,255,0.3)' }}>
+                  <Icon name="MessageSquare" size={18} color="#4d8fff" /><span className="text-sm font-medium text-white flex-1">Написать в приложении</span><Icon name="ChevronRight" size={15} color="rgba(255,255,255,0.3)" />
+                </button>
+                <button onClick={() => { setWinnerContact(null); showToast("✅ Поставщик уведомлён о вашей заинтересованности"); }} className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left" style={{ background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)' }}>
+                  <Icon name="Send" size={18} color="#8b5cf6" /><span className="text-sm font-medium text-white flex-1">Сообщить о заинтересованности</span><Icon name="ChevronRight" size={15} color="rgba(255,255,255,0.3)" />
+                </button>
+              </div>
+              <button onClick={() => setWinnerContact(null)} className="btn-ghost w-full text-sm mt-3">Закрыть</button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

@@ -95,6 +95,20 @@
   html[data-theme="light"] .text-white\/40 {
     color: rgba(30, 41, 59, 0.45) !important;
   }
+  /* Светлая тема: белые иконки делаем тёмными, чтобы были видны.
+     Цветные иконки (красные/зелёные/синие и т.п.) не трогаем. */
+  html[data-theme="light"] svg[stroke="white"],
+  html[data-theme="light"] svg[stroke="#fff"],
+  html[data-theme="light"] svg[stroke="#ffffff"],
+  html[data-theme="light"] svg[stroke^="rgba(255, 255, 255"],
+  html[data-theme="light"] svg[stroke^="rgba(255,255,255"] {
+    stroke: #1e293b !important;
+  }
+  html[data-theme="light"] svg[fill="white"],
+  html[data-theme="light"] svg[fill="#fff"],
+  html[data-theme="light"] svg[fill="#ffffff"] {
+    fill: #1e293b !important;
+  }
 
   /* Brand theme — red on black */
   html[data-theme="brand"] body {

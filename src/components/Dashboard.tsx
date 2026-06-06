@@ -12,7 +12,7 @@ interface Props {
 const MODULES = [
   {
     id: "video" as AppScreen,
-    title: "Видеоматериалы",
+    title: "Видео",
     desc: "Обучающие и корпоративные видео",
     icon: "Play",
     color: "#ef4444",

@@ -32,8 +32,10 @@ const THEMES = [
 ];
 
 export default function ProfileScreen({ onBack, onLogout, onNavigate }: Props) {
-  const { currentUser, updateCurrentUser, myStats, theme, setTheme, lang, setLang, isAdmin } = useApp();
+  const { currentUser, updateCurrentUser, myStats, theme, setTheme, lang, setLang, isAdmin, hasRole } = useApp();
   const t = I18N[lang];
+  const [contentToast, setContentToast] = useState<string | null>(null);
+  const showContentToast = (m: string) => { setContentToast(m); setTimeout(() => setContentToast(null), 2200); };
   const [openDoc, setOpenDoc] = useState<string | null>(null);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -159,6 +161,7 @@ export default function ProfileScreen({ onBack, onLogout, onNavigate }: Props) {
   // ── MAIN ──
   return (
     <div className="min-h-screen relative z-10 animate-fade-in">
+      {contentToast && <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-2xl text-sm font-medium text-white animate-fade-up" style={{ background: 'rgba(100,116,139,0.95)', backdropFilter: 'blur(12px)' }}>{contentToast}</div>}
       <ModuleHeader title={t.profile} onBack={onBack} />
       <div className="max-w-2xl mx-auto px-4 pt-5 pb-8 space-y-4">
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
@@ -207,18 +210,23 @@ export default function ProfileScreen({ onBack, onLogout, onNavigate }: Props) {
           )}
         </div>
 
-        {/* Stats grid — клик по разделу открывает лично добавленные пользователем материалы */}
+        {/* Stats grid — клик по разделу открывает лично добавленные пользователем материалы.
+            Если нет роли или контента — уведомление «Контент отсутствует». */}
         <div className="grid grid-cols-3 gap-2 animate-fade-up opacity-0 delay-100" style={{ animationFillMode: 'forwards' }}>
           {[
-            { label: t.videos, value: myStats.videos, icon: "Play", color: "#ef4444", nav: "video" as AppScreen },
-            { label: t.news, value: myStats.news, icon: "Newspaper", color: "#f59e0b", nav: "news" as AppScreen },
-            { label: t.documents, value: myStats.documents, icon: "FileText", color: "#10b981", nav: "documents" as AppScreen },
-            { label: "Предложения", value: 0, icon: "FileSearch", color: "#8b5cf6", nav: "rfp" as AppScreen },
-            { label: t.courses, value: myStats.courses, icon: "GraduationCap", color: "#3b82f6", nav: "learning" as AppScreen },
-            { label: t.subscribers, value: currentUser.subscribers.length, icon: "Users", color: "#ec4899", nav: null },
+            { label: t.videos, value: myStats.videos, icon: "Play", color: "#ef4444", nav: "video" as AppScreen, role: "content_maker" as const },
+            { label: t.news, value: myStats.news, icon: "Newspaper", color: "#f59e0b", nav: "news" as AppScreen, role: "editor" as const },
+            { label: t.documents, value: myStats.documents, icon: "FileText", color: "#10b981", nav: "documents" as AppScreen, role: "documentor" as const },
+            { label: "Предложения", value: 0, icon: "FileSearch", color: "#8b5cf6", nav: "rfp" as AppScreen, role: "executor" as const },
+            { label: t.courses, value: myStats.courses, icon: "GraduationCap", color: "#3b82f6", nav: "learning" as AppScreen, role: null },
+            { label: t.subscribers, value: currentUser.subscribers.length, icon: "Users", color: "#ec4899", nav: null, role: null },
           ].map(s => (
             s.nav ? (
-              <button key={s.label} onClick={() => onNavigate(s.nav!)} className="glass rounded-2xl p-3 text-center hover:border-white/20 transition-all">
+              <button key={s.label} onClick={() => {
+                const allowed = s.role === null || hasRole(s.role);
+                if (!allowed || (s.value ?? 0) === 0) { showContentToast("Контент отсутствует"); return; }
+                onNavigate(s.nav!);
+              }} className="glass rounded-2xl p-3 text-center hover:border-white/20 transition-all">
                 <Icon name={s.icon} size={18} color={s.color} className="mx-auto mb-1" />
                 <div className="text-lg font-bold text-white">{s.value}</div>
                 <div className="text-xs text-white/40">{s.label}</div>

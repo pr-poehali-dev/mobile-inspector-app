@@ -33,6 +33,7 @@ interface VideoItem {
   date: string;
   duration: string;
   thumbnail: string;
+  bannerImage?: string; // загруженный баннер видео (data-url)
   comments: Comment[];
 }
 
@@ -85,8 +86,9 @@ export default function VideoModule({ onBack }: Props) {
   const [toast, setToast] = useState<string | null>(null);
   const [editingVideo, setEditingVideo] = useState<VideoItem | null>(null);
 
-  const [addForm, setAddForm] = useState({ title: "", description: "", category: (categories.video || [])[1] || "Охрана труда", hashtags: "", youtubeUrl: "", file: "" });
+  const [addForm, setAddForm] = useState({ title: "", description: "", category: (categories.video || [])[1] || "Охрана труда", hashtags: "", youtubeUrl: "", file: "", bannerImage: "" });
   const videoFileRef = useRef<HTMLInputElement>(null);
+  const bannerFileRef = useRef<HTMLInputElement>(null);
   const [requestPhone, setRequestPhone] = useState(currentUser.phone || "");
   const [requestAgreed, setRequestAgreed] = useState(false);
 
@@ -100,6 +102,14 @@ export default function VideoModule({ onBack }: Props) {
   const handleVideoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (f) setAddForm(prev => ({ ...prev, file: f.name }));
+    e.target.value = "";
+  };
+  const handleBannerFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => setAddForm(prev => ({ ...prev, bannerImage: reader.result as string }));
+    reader.readAsDataURL(f);
     e.target.value = "";
   };
   const pendingVideoReqs = roleRequests.filter(r => r.status === "pending" && r.role === "content_maker");
@@ -152,14 +162,14 @@ export default function VideoModule({ onBack }: Props) {
   const submitAdd = () => {
     if (!addForm.title.trim()) return;
     if (editingVideo) {
-      setVideos(prev => prev.map(v => v.id === editingVideo.id ? { ...v, title: addForm.title, description: addForm.description, category: addForm.category, hashtags: addForm.hashtags.split(/\s+/).filter(Boolean).map(h => h.startsWith("#") ? h : `#${h}`) } : v));
+      setVideos(prev => prev.map(v => v.id === editingVideo.id ? { ...v, title: addForm.title, description: addForm.description, category: addForm.category, hashtags: addForm.hashtags.split(/\s+/).filter(Boolean).map(h => h.startsWith("#") ? h : `#${h}`), bannerImage: addForm.bannerImage || v.bannerImage } : v));
       showToast("✅ Видео обновлено");
     } else {
-      setVideos(prev => [{ id: Date.now(), title: addForm.title, description: addForm.description, hashtags: addForm.hashtags.split(/\s+/).filter(Boolean).map(h => h.startsWith("#") ? h : `#${h}`), category: addForm.category, author: meAsAuthor, views: 0, likes: 0, favoritedBy: 0, date: new Date().toLocaleDateString("ru-RU"), duration: "—", thumbnail: THUMB_COLORS[Math.floor(Math.random() * THUMB_COLORS.length)], comments: [] }, ...prev]);
+      setVideos(prev => [{ id: Date.now(), title: addForm.title, description: addForm.description, hashtags: addForm.hashtags.split(/\s+/).filter(Boolean).map(h => h.startsWith("#") ? h : `#${h}`), category: addForm.category, author: meAsAuthor, views: 0, likes: 0, favoritedBy: 0, date: new Date().toLocaleDateString("ru-RU"), duration: "—", thumbnail: THUMB_COLORS[Math.floor(Math.random() * THUMB_COLORS.length)], bannerImage: addForm.bannerImage || undefined, comments: [] }, ...prev]);
       bumpStat("videos", 1);
       showToast("✅ Видео добавлено в ленту!");
     }
-    setAddForm({ title: "", description: "", category: (categories.video || [])[1] || "Охрана труда", hashtags: "", youtubeUrl: "", file: "" });
+    setAddForm({ title: "", description: "", category: (categories.video || [])[1] || "Охрана труда", hashtags: "", youtubeUrl: "", file: "", bannerImage: "" });
     setEditingVideo(null);
     setView(editingVideo ? "studio" : "feed");
   };
@@ -172,7 +182,7 @@ export default function VideoModule({ onBack }: Props) {
 
   const startEdit = (v: VideoItem) => {
     setEditingVideo(v);
-    setAddForm({ title: v.title, description: v.description, category: v.category, hashtags: v.hashtags.join(" "), youtubeUrl: "", file: "" });
+    setAddForm({ title: v.title, description: v.description, category: v.category, hashtags: v.hashtags.join(" "), youtubeUrl: "", file: "", bannerImage: v.bannerImage || "" });
     setView("add");
   };
 
@@ -192,6 +202,22 @@ export default function VideoModule({ onBack }: Props) {
               <button key={cat} onClick={() => setAddForm(f => ({ ...f, category: cat }))} className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all" style={{ background: addForm.category === cat ? 'rgba(239,68,68,0.25)' : 'rgba(255,255,255,0.06)', border: `1px solid ${addForm.category === cat ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.1)'}`, color: addForm.category === cat ? '#ef4444' : 'rgba(255,255,255,0.5)' }}>{cat}</button>
             ))}
           </div>
+        </div>
+        {/* Баннер видео */}
+        <div>
+          <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Баннер видео</label>
+          <input ref={bannerFileRef} type="file" accept="image/*" className="hidden" onChange={handleBannerFile} />
+          {addForm.bannerImage ? (
+            <div className="rounded-xl overflow-hidden relative" style={{ aspectRatio: '16/9' }}>
+              <img src={addForm.bannerImage} alt="" className="w-full h-full object-cover" />
+              <button onClick={() => setAddForm(f => ({ ...f, bannerImage: "" }))} className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}><Icon name="X" size={15} color="white" /></button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => bannerFileRef.current?.click()} className="w-full flex flex-col items-center gap-2 p-5 rounded-xl cursor-pointer" style={{ background: 'rgba(255,255,255,0.04)', border: '2px dashed rgba(255,255,255,0.15)' }}>
+              <Icon name="ImagePlus" size={24} color="rgba(255,255,255,0.3)" />
+              <span className="text-xs text-white/40">Загрузить обложку (баннер) видео</span>
+            </button>
+          )}
         </div>
         <div><label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Хэштеги (через пробел)</label>
           <input className="input-field" placeholder="#охрана_труда #инструктаж" value={addForm.hashtags} onChange={e => setAddForm(f => ({ ...f, hashtags: e.target.value }))} /></div>
@@ -425,6 +451,7 @@ export default function VideoModule({ onBack }: Props) {
         <ModuleHeader title={selectedVideo.title} onBack={() => setView(channelAuthor ? "channel" : "feed")} subtitle={selectedVideo.author.name} />
         <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
           <div className="rounded-2xl overflow-hidden relative" style={{ background: selectedVideo.thumbnail, aspectRatio: '16/9', border: '1px solid rgba(255,255,255,0.1)' }}>
+            {selectedVideo.bannerImage && <img src={selectedVideo.bannerImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
             <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
               <button onClick={() => setIsPlaying(p => !p)} className="w-16 h-16 rounded-full flex items-center justify-center transition-transform hover:scale-110 active:scale-95" style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}><Icon name={isPlaying ? "Pause" : "Play"} size={28} color="white" /></button>
             </div>
@@ -563,6 +590,7 @@ function VideoCard({ video, isFav, onToggleFav, onPlay, onAuthorClick, onHashtag
   return (
     <div className="rounded-2xl overflow-hidden animate-fade-up opacity-0 transition-all" style={{ animationDelay: `${animDelay}s`, animationFillMode: 'forwards', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
       <div className="w-full relative" style={{ aspectRatio: '16/7', background: video.thumbnail }}>
+        {video.bannerImage && <img src={video.bannerImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
         <button onClick={onPlay} className="absolute inset-0 flex items-center justify-center w-full" style={{ background: 'rgba(0,0,0,0.3)' }}><div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}><Icon name="Play" size={18} color="white" /></div></button>
         <span className="absolute bottom-2 right-2 text-xs text-white font-mono px-2 py-0.5 rounded-lg pointer-events-none" style={{ background: 'rgba(0,0,0,0.65)' }}>{video.duration}</span>
         <span className="absolute top-2 left-2 text-xs px-2 py-0.5 rounded-lg font-medium pointer-events-none" style={{ background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.85)' }}>{video.category.split(" ")[0]}</span>
