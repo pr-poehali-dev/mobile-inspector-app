@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
 
-export type UserRole = "user" | "admin" | "content_maker" | "editor" | "documentor" | "executor" | "guest";
+export type UserRole = "user" | "admin" | "content_maker" | "editor" | "documentor" | "executor" | "school" | "guest";
 export type ThemeMode = "dark" | "light" | "brand";
 export type Lang = "ru" | "en";
 
@@ -26,7 +26,7 @@ export interface RoleRequest {
   userId: number;
   userName: string;
   phone: string;
-  role: "content_maker" | "editor" | "documentor" | "executor";
+  role: "content_maker" | "editor" | "documentor" | "executor" | "school";
   date: string;
   status: "pending" | "approved" | "rejected";
   requiresPayment?: boolean;
@@ -104,7 +104,7 @@ interface AppContextType {
 
   // role requests
   roleRequests: RoleRequest[];
-  addRoleRequest: (role: "content_maker" | "editor" | "documentor" | "executor", phone?: string, requiresPayment?: boolean) => void;
+  addRoleRequest: (role: "content_maker" | "editor" | "documentor" | "executor" | "school", phone?: string, requiresPayment?: boolean) => void;
   resolveRoleRequest: (id: number, approve: boolean) => void;
   payForRole: (requestId: number) => void;
 
@@ -261,7 +261,7 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
     setNotifications(prev => [{ id: Date.now() + Math.random(), userId, text, date: new Date().toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }), read: false, type }, ...prev]);
   };
 
-  const addRoleRequest = (role: "content_maker" | "editor" | "documentor" | "executor", phone?: string, requiresPayment?: boolean) => {
+  const addRoleRequest = (role: "content_maker" | "editor" | "documentor" | "executor" | "school", phone?: string, requiresPayment?: boolean) => {
     setRoleRequests(prev => [...prev, { id: Date.now(), userId: currentUser.id, userName: currentUser.name, phone: phone || currentUser.phone, role, date: new Date().toLocaleDateString("ru-RU"), status: "pending", requiresPayment: !!requiresPayment, paid: false }]);
   };
 

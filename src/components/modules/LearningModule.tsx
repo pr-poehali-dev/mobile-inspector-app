@@ -2,15 +2,18 @@ import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
+import { usePersistentState } from "@/hooks/usePersistentState";
 import SchoolAdmin from "./learning/SchoolAdmin";
 
 interface Props { onBack: () => void; }
 
+interface Enrollment { id: number; courseId: number; courseTitle: string; fio: string; phone: string; date: string; }
+
 const COURSES = [
-  { id: 1, title: "Охрана труда и техника безопасности", lessons: 8, duration: "3 ч 20 мин", progress: 75, category: "Обязательный", cert: false },
-  { id: 2, title: "Основы документооборота", lessons: 5, duration: "1 ч 45 мин", progress: 100, category: "Завершён", cert: true },
-  { id: 3, title: "Работа с корпоративной системой", lessons: 12, duration: "5 ч", progress: 0, category: "Новый", cert: false },
-  { id: 4, title: "Управление проектами Agile", lessons: 10, duration: "4 ч 30 мин", progress: 30, category: "В процессе", cert: false },
+  { id: 1, title: "Охрана труда и техника безопасности", lessons: 8, duration: "3 ч 20 мин", progress: 75, category: "Обязательный", cert: false, image: "https://images.unsplash.com/photo-1581094794329-c8112a89af12?w=400", hours: "40 ч", audience: "Специалисты ОТ", description: "Базовый курс по охране труда и технике безопасности на производстве.", school: "Учебный центр «Безопасность»" },
+  { id: 2, title: "Основы документооборота", lessons: 5, duration: "1 ч 45 мин", progress: 100, category: "Завершён", cert: true, image: "https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=400", hours: "16 ч", audience: "Делопроизводители", description: "Организация и ведение корпоративного документооборота.", school: "Академия Профразвития" },
+  { id: 3, title: "Работа с корпоративной системой", lessons: 12, duration: "5 ч", progress: 0, category: "Новый", cert: false, image: "https://images.unsplash.com/photo-1551434678-e076c223a692?w=400", hours: "24 ч", audience: "Все сотрудники", description: "Освоение корпоративной информационной системы предприятия.", school: "Учебный центр «Безопасность»" },
+  { id: 4, title: "Управление проектами Agile", lessons: 10, duration: "4 ч 30 мин", progress: 30, category: "В процессе", cert: false, image: "https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=400", hours: "72 ч", audience: "Менеджеры", description: "Гибкие методологии управления проектами Scrum и Kanban.", school: "Академия Профразвития" },
 ];
 
 const QUESTIONS = [
@@ -36,6 +39,10 @@ export default function LearningModule({ onBack }: Props) {
     { author: "Сергей", text: "Подскажите, где скачать методичку?" },
   ]);
   const [toast, setToast] = useState<string | null>(null);
+  const [enrollOpen, setEnrollOpen] = useState(false);
+  const [enrollFio, setEnrollFio] = useState("");
+  const [enrollPhone, setEnrollPhone] = useState("");
+  const [, setAllEnrollments] = usePersistentState<Enrollment[]>("school_enrollments_all", []);
 
   // Режим администратора школы (конструктор курсов, ученики, проверка ДЗ, аналитика)
   if (school) return <SchoolAdmin onBack={() => setSchool(false)} />;
@@ -127,14 +134,17 @@ export default function LearningModule({ onBack }: Props) {
             <Icon name="Award" size={44} color="white" />
           </div>
           <div className="glass rounded-3xl p-8 max-w-sm mx-auto">
-            <p className="text-xs text-white/40 uppercase tracking-wider mb-2">Сертификат об окончании</p>
-            <h2 className="text-xl font-bold text-white mb-1" style={{ fontFamily: 'Montserrat, sans-serif' }}>{selectedCourse.title}</h2>
-            <p className="text-white/50 text-sm mb-4">Иван Петров успешно завершил курс</p>
+            <p className="text-xs text-white/40 uppercase tracking-wider mb-2">Получаемый документ</p>
+            {/* Новый дизайн: в названии — получаемый по итогу документ */}
+            <h2 className="text-xl font-bold text-white mb-1" style={{ fontFamily: 'Montserrat, sans-serif' }}>Удостоверение о прохождении</h2>
+            <p className="text-sm text-yellow-400 font-medium mb-3">«{selectedCourse.title}»</p>
+            <p className="text-white/50 text-sm mb-4">выдаётся слушателю, успешно завершившему курс на 100%</p>
             <div className="py-3 border-t border-b border-white/10 mb-4">
-              <p className="text-xs text-white/40">Дата: {new Date().toLocaleDateString("ru-RU")}</p>
+              <p className="text-xs text-white/40">Дата выдачи: {new Date().toLocaleDateString("ru-RU")}</p>
+              <p className="text-xs text-white/40 mt-1">Способ получения: лично или почтой</p>
             </div>
-            <button onClick={() => showToast("📥 Сертификат загружается...")} className="btn-primary flex items-center justify-center gap-2 text-sm py-3">
-              <Icon name="Download" size={16} />Скачать сертификат
+            <button onClick={() => showToast("📥 Документ загружается...")} className="btn-primary flex items-center justify-center gap-2 text-sm py-3">
+              <Icon name="Download" size={16} />Скачать документ
             </button>
           </div>
           <button onClick={() => { setView("list"); setSelectedCourse(null); }} className="mt-4 text-white/40 text-sm hover:text-white/70 transition-colors">
@@ -293,6 +303,10 @@ export default function LearningModule({ onBack }: Props) {
               <Icon name="ClipboardCheck" size={16} />Тест
             </button>
           </div>
+          {/* Запись на курс — доступна любому пользователю */}
+          <button onClick={() => { setEnrollFio(""); setEnrollPhone(""); setEnrollOpen(true); }} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium text-white" style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}>
+            <Icon name="UserPlus" size={16} />Записаться на курс
+          </button>
           {selectedCourse.cert && (
             <button onClick={() => setView("cert")} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium text-yellow-400 transition-colors" style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)' }}>
               <Icon name="Award" size={16} color="#f59e0b" />Открыть сертификат
@@ -328,6 +342,29 @@ export default function LearningModule({ onBack }: Props) {
             </div>
           </div>
         </div>
+
+        {/* Модалка записи на курс */}
+        {enrollOpen && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }} onClick={() => setEnrollOpen(false)}>
+            <div className="w-full max-w-md mx-4 mb-4 sm:mb-0 glass-strong rounded-3xl p-6 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }} onClick={e => e.stopPropagation()}>
+              <div className="flex items-center gap-2 mb-4"><div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.2)' }}><Icon name="UserPlus" size={16} color="#3b82f6" /></div><h3 className="text-base font-bold text-white">Запись на курс</h3></div>
+              <p className="text-xs text-white/40 mb-3">{selectedCourse.title}</p>
+              <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">ФИО</label>
+              <input className="input-field mb-3" placeholder="Иванов Иван Иванович" value={enrollFio} onChange={e => setEnrollFio(e.target.value)} />
+              <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Номер телефона</label>
+              <input className="input-field mb-4" type="tel" placeholder="+7 (___) ___-__-__" value={enrollPhone} onChange={e => setEnrollPhone(e.target.value)} />
+              {/* Информация о получаемом документе */}
+              <div className="flex items-start gap-2 p-3 rounded-xl mb-4" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                <Icon name="Award" size={14} color="#f59e0b" className="flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-yellow-200/80">По итогу курса выдаётся документ. Способ получения уточняется школой после прохождения.</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setEnrollOpen(false)} className="btn-ghost flex-1 text-sm">Отмена</button>
+                <button onClick={() => { if (enrollFio.trim() && enrollPhone.replace(/\D/g, "").length >= 10) { setAllEnrollments(prev => [{ id: Date.now(), courseId: selectedCourse.id, courseTitle: selectedCourse.title, fio: enrollFio, phone: enrollPhone, date: new Date().toLocaleDateString("ru-RU") }, ...prev]); setEnrollOpen(false); showToast("✅ Вы записаны на курс!"); } }} disabled={!enrollFio.trim() || enrollPhone.replace(/\D/g, "").length < 10} className="btn-primary flex-1 text-sm flex items-center justify-center gap-2 disabled:opacity-40"><Icon name="Check" size={15} />Записаться</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -345,18 +382,32 @@ export default function LearningModule({ onBack }: Props) {
       </div>
       <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
         {COURSES.map((course, i) => (
-          <button key={course.id} onClick={() => { setSelectedCourse(course); setView("course"); }} className={`w-full text-left card-module animate-fade-up opacity-0`} style={{ animationDelay: `${0.05 + i * 0.07}s`, animationFillMode: 'forwards' }}>
-            <div className="flex items-start justify-between mb-3">
-              <span className="tag text-xs" style={{ background: course.progress === 100 ? 'rgba(16,185,129,0.15)' : 'rgba(27,111,255,0.15)', borderColor: course.progress === 100 ? 'rgba(16,185,129,0.3)' : 'rgba(27,111,255,0.3)', color: course.progress === 100 ? '#10b981' : '#4d8fff' }}>{course.category}</span>
-              {course.cert && <Icon name="Award" size={18} color="#f59e0b" />}
+          <button key={course.id} onClick={() => { setSelectedCourse(course); setView("course"); }} className={`w-full text-left glass rounded-2xl overflow-hidden animate-fade-up opacity-0 hover:border-white/20 transition-all`} style={{ animationDelay: `${0.05 + i * 0.07}s`, animationFillMode: 'forwards' }}>
+            {/* Изображение курса */}
+            <div className="h-28 relative" style={{ background: 'linear-gradient(135deg,#1e3a8a,#3b82f6)' }}>
+              {course.image && <img src={course.image} alt="" className="w-full h-full object-cover" loading="lazy" />}
+              <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.25)' }} />
+              <span className="absolute top-2 left-2 tag text-xs" style={{ background: course.progress === 100 ? 'rgba(16,185,129,0.85)' : 'rgba(27,111,255,0.85)', color: 'white' }}>{course.category}</span>
+              {course.cert && <span className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}><Icon name="Award" size={16} color="#f59e0b" /></span>}
             </div>
-            <h3 className="text-sm font-semibold text-white mb-3">{course.title}</h3>
-            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden mb-2">
-              <div className="h-full rounded-full" style={{ width: `${course.progress}%`, background: course.progress === 100 ? 'linear-gradient(90deg, #10b981, #059669)' : 'linear-gradient(90deg, #3b82f6, #8b5cf6)' }} />
-            </div>
-            <div className="flex justify-between text-xs text-white/40">
-              <span>{course.lessons} уроков · {course.duration}</span>
-              <span className="font-semibold" style={{ color: course.progress === 100 ? '#10b981' : '#4d8fff' }}>{course.progress}%</span>
+            <div className="p-4">
+              {/* Школа, добавившая курс */}
+              <div className="flex items-center gap-1.5 mb-1.5"><Icon name="School" size={12} color="#6366f1" /><span className="text-xs text-indigo-300">{course.school}</span></div>
+              <h3 className="text-sm font-semibold text-white mb-1.5">{course.title}</h3>
+              {/* Описание курса */}
+              <p className="text-xs text-white/50 mb-2 line-clamp-2">{course.description}</p>
+              {/* Часы обучения и категория слушателей */}
+              <div className="flex flex-wrap gap-2 mb-3">
+                <span className="text-xs px-2 py-0.5 rounded-lg flex items-center gap-1" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)' }}><Icon name="Clock" size={11} />{course.hours}</span>
+                <span className="text-xs px-2 py-0.5 rounded-lg flex items-center gap-1" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)' }}><Icon name="Users" size={11} />{course.audience}</span>
+              </div>
+              <div className="h-1.5 bg-white/10 rounded-full overflow-hidden mb-2">
+                <div className="h-full rounded-full" style={{ width: `${course.progress}%`, background: course.progress === 100 ? 'linear-gradient(90deg, #10b981, #059669)' : 'linear-gradient(90deg, #3b82f6, #8b5cf6)' }} />
+              </div>
+              <div className="flex justify-between text-xs text-white/40">
+                <span>{course.lessons} уроков · {course.duration}</span>
+                <span className="font-semibold" style={{ color: course.progress === 100 ? '#10b981' : '#4d8fff' }}>{course.progress}%</span>
+              </div>
             </div>
           </button>
         ))}

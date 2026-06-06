@@ -207,21 +207,29 @@ export default function ProfileScreen({ onBack, onLogout, onNavigate }: Props) {
           )}
         </div>
 
-        {/* Stats grid */}
+        {/* Stats grid — клик по разделу открывает лично добавленные пользователем материалы */}
         <div className="grid grid-cols-3 gap-2 animate-fade-up opacity-0 delay-100" style={{ animationFillMode: 'forwards' }}>
           {[
-            { label: t.videos, value: myStats.videos, icon: "Play", color: "#ef4444" },
-            { label: t.news, value: myStats.news, icon: "Newspaper", color: "#f59e0b" },
-            { label: t.documents, value: myStats.documents, icon: "FileText", color: "#10b981" },
-            { label: t.courses, value: myStats.courses, icon: "GraduationCap", color: "#3b82f6" },
-            { label: t.subscribers, value: currentUser.subscribers.length, icon: "Users", color: "#ec4899" },
-            { label: t.subscriptions, value: currentUser.subscriptions.length, icon: "UserPlus", color: "#8b5cf6" },
+            { label: t.videos, value: myStats.videos, icon: "Play", color: "#ef4444", nav: "video" as AppScreen },
+            { label: t.news, value: myStats.news, icon: "Newspaper", color: "#f59e0b", nav: "news" as AppScreen },
+            { label: t.documents, value: myStats.documents, icon: "FileText", color: "#10b981", nav: "documents" as AppScreen },
+            { label: "Предложения", value: 0, icon: "FileSearch", color: "#8b5cf6", nav: "rfp" as AppScreen },
+            { label: t.courses, value: myStats.courses, icon: "GraduationCap", color: "#3b82f6", nav: "learning" as AppScreen },
+            { label: t.subscribers, value: currentUser.subscribers.length, icon: "Users", color: "#ec4899", nav: null },
           ].map(s => (
-            <div key={s.label} className="glass rounded-2xl p-3 text-center">
-              <Icon name={s.icon} size={18} color={s.color} className="mx-auto mb-1" />
-              <div className="text-lg font-bold text-white">{s.value}</div>
-              <div className="text-xs text-white/40">{s.label}</div>
-            </div>
+            s.nav ? (
+              <button key={s.label} onClick={() => onNavigate(s.nav!)} className="glass rounded-2xl p-3 text-center hover:border-white/20 transition-all">
+                <Icon name={s.icon} size={18} color={s.color} className="mx-auto mb-1" />
+                <div className="text-lg font-bold text-white">{s.value}</div>
+                <div className="text-xs text-white/40">{s.label}</div>
+              </button>
+            ) : (
+              <div key={s.label} className="glass rounded-2xl p-3 text-center">
+                <Icon name={s.icon} size={18} color={s.color} className="mx-auto mb-1" />
+                <div className="text-lg font-bold text-white">{s.value}</div>
+                <div className="text-xs text-white/40">{s.label}</div>
+              </div>
+            )
           ))}
         </div>
 

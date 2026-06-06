@@ -22,6 +22,8 @@ interface Props {
   startSurvey: () => void;
   openSurvey: (cl: ChecklistData) => void;
   downloadPhoto: (dataUrl: string, idx: number) => void;
+  printHistory: (rec: HistoryRecord) => void;
+  emailHistory: (rec: HistoryRecord) => void;
 }
 
 export default function ChecklistBrowseViews(props: Props) {
@@ -30,6 +32,7 @@ export default function ChecklistBrowseViews(props: Props) {
     setSelectedSphere, setSelectedArea, setView, setAdminView,
     history, historyRecord, setHistoryRecord, pendingChecklist,
     objectName, setObjectName, startSurvey, openSurvey, downloadPhoto,
+    printHistory, emailHistory,
   } = props;
 
   // ── OBJECT NAME VIEW ────────────────────────────────────────────────────────
@@ -108,6 +111,15 @@ export default function ChecklistBrowseViews(props: Props) {
               {[{ k: "yes", v: historyRecord.yes }, { k: "no", v: historyRecord.no }, { k: "na", v: historyRecord.na }].map(s => (
                 <div key={s.k} className="text-center py-3 rounded-xl" style={{ background: `${ANS_LABEL[s.k].color}12` }}><div className="text-xl font-bold" style={{ color: ANS_LABEL[s.k].color }}>{s.v}</div><div className="text-xs" style={{ color: ANS_LABEL[s.k].color }}>{ANS_LABEL[s.k].label}</div></div>
               ))}
+            </div>
+            {/* Кнопки экспорта истории проверки — как в модалке «Чек-лист завершён» */}
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <button onClick={() => emailHistory(historyRecord)} className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium" style={{ background: 'rgba(6,182,212,0.12)', border: '1px solid rgba(6,182,212,0.3)', color: '#06b6d4' }}>
+                <Icon name="Mail" size={15} color="#06b6d4" />Отправить на почту
+              </button>
+              <button onClick={() => printHistory(historyRecord)} className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium text-white" style={{ background: 'linear-gradient(135deg, #06b6d4, #0891b2)' }}>
+                <Icon name="FileText" size={15} />Создать PDF
+              </button>
             </div>
           </div>
           {historyRecord.questions.map((q, i) => (

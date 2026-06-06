@@ -11,6 +11,7 @@ const ROLE_BADGE: Record<string, { label: string; color: string; icon: string }>
   editor: { label: "Редактор", color: "#f59e0b", icon: "Newspaper" },
   documentor: { label: "Документовед", color: "#10b981", icon: "FolderOpen" },
   executor: { label: "Исполнитель", color: "#8b5cf6", icon: "Briefcase" },
+  school: { label: "Школа", color: "#6366f1", icon: "School" },
   user: { label: "Пользователь", color: "#3b82f6", icon: "User" },
 };
 

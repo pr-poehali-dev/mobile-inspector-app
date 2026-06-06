@@ -91,6 +91,33 @@ const MODULES = [
     gradient: "from-purple-600/20 to-purple-900/10",
     count: "Всегда онлайн",
   },
+  {
+    id: "sales" as AppScreen,
+    title: "Продажи",
+    desc: "Партнёрский канал · 10% с подписок",
+    icon: "TrendingUp",
+    color: "#22c55e",
+    gradient: "from-green-600/20 to-green-900/10",
+    count: "Реф. программа",
+  },
+  {
+    id: "services" as AppScreen,
+    title: "Оказание услуг",
+    desc: "Маркетплейс исполнителей",
+    icon: "Store",
+    color: "#0ea5e9",
+    gradient: "from-sky-600/20 to-sky-900/10",
+    count: "Каталог услуг",
+  },
+  {
+    id: "schools" as AppScreen,
+    title: "Школы",
+    desc: "Учебные организации и курсы",
+    icon: "School",
+    color: "#6366f1",
+    gradient: "from-indigo-600/20 to-indigo-900/10",
+    count: "Каталог школ",
+  },
 ];
 
 export default function Dashboard({ user, onNavigate }: Props) {
