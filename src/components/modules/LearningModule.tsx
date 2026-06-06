@@ -4,6 +4,7 @@ import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
 import { usePersistentState } from "@/hooks/usePersistentState";
 import SchoolAdmin from "./learning/SchoolAdmin";
+import SchoolsModule from "./SchoolsModule";
 
 interface Props { onBack: () => void; }
 
@@ -26,6 +27,7 @@ export default function LearningModule({ onBack }: Props) {
   const { isAdmin } = useApp();
   const [view, setView] = useState<"list" | "course" | "lesson" | "test" | "cert">("list");
   const [school, setSchool] = useState(false); // режим администратора школы
+  const [browseMode, setBrowseMode] = useState<"all" | "schools">("all"); // поиск по общему потоку / по школам
   const [selectedCourse, setSelectedCourse] = useState<typeof COURSES[0] | null>(null);
   const [testAnswers, setTestAnswers] = useState<Record<number, number>>({});
   const [testDone, setTestDone] = useState(false);
@@ -46,6 +48,9 @@ export default function LearningModule({ onBack }: Props) {
 
   // Режим администратора школы (конструктор курсов, ученики, проверка ДЗ, аналитика)
   if (school) return <SchoolAdmin onBack={() => setSchool(false)} />;
+
+  // Просмотр курсов по школам (раздел «Школы» встроен в «Обучение»)
+  if (view === "list" && browseMode === "schools") return <SchoolsModule embedded onBack={() => setBrowseMode("all")} />;
 
   const score = QUESTIONS.filter(q => testAnswers[q.id] === q.correct).length;
   const submitTest = () => setTestDone(true);
@@ -378,6 +383,11 @@ export default function LearningModule({ onBack }: Props) {
           <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.3)' }}><Icon name="GraduationCap" size={16} color="#3b82f6" /></div>
           <div className="flex-1"><h1 className="text-base font-bold text-white">Обучение · Библиотека</h1><p className="text-xs text-white/40">{COURSES.length} курса</p></div>
           {isAdmin && <button onClick={() => setSchool(true)} className="px-3 h-9 rounded-xl flex items-center gap-1.5" style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}><Icon name="Settings" size={15} color="white" /><span className="text-xs font-semibold text-white">Школа</span></button>}
+        </div>
+        {/* Переключатель: общий поток курсов / по школам */}
+        <div className="max-w-2xl mx-auto mt-3 flex gap-2 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.05)' }}>
+          <button onClick={() => setBrowseMode("all")} className="flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-all" style={{ background: browseMode === "all" ? 'linear-gradient(135deg,#3b82f6,#2563eb)' : 'transparent', color: browseMode === "all" ? 'white' : 'rgba(255,255,255,0.5)' }}><Icon name="LayoutGrid" size={15} color={browseMode === "all" ? "white" : "rgba(255,255,255,0.5)"} />Все курсы</button>
+          <button onClick={() => setBrowseMode("schools")} className="flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-all" style={{ background: 'transparent', color: 'rgba(255,255,255,0.5)' }}><Icon name="School" size={15} color="rgba(255,255,255,0.5)" />По школам</button>
         </div>
       </div>
       <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">

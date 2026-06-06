@@ -5,10 +5,11 @@ import { useApp } from "@/context/AppContext";
 import { usePersistentState } from "@/hooks/usePersistentState";
 import SchoolAdmin from "./learning/SchoolAdmin";
 
-interface Props { onBack: () => void; }
+interface Props { onBack: () => void; embedded?: boolean; }
 
 // ── Структура данных школы (готова к переносу на сервер) ──
-interface SchoolCourse { id: number; title: string; hours: string; audience: string; }
+interface SchoolCourse { id: number; title: string; hours: string; audience: string; description?: string; }
+interface Enrollment { id: number; courseId: number; courseTitle: string; fio: string; phone: string; date: string; ownerId?: number; schoolName?: string; }
 interface School {
   id: number;
   ownerId: number;
@@ -30,10 +31,11 @@ const SEED_SCHOOLS: School[] = [
 
 type ViewMode = "list" | "profile" | "request" | "cabinet" | "constructor" | "editCourse";
 
-export default function SchoolsModule({ onBack }: Props) {
+export default function SchoolsModule({ onBack, embedded }: Props) {
   const { currentUser, hasRole, isAdmin, addRoleRequest, roleRequests } = useApp();
 
   const [schools, setSchools] = usePersistentState<School[]>("schools_list", SEED_SCHOOLS);
+  const [, setAllEnrollments] = usePersistentState<Enrollment[]>("school_enrollments_all", []);
   const [view, setView] = useState<ViewMode>("list");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -42,6 +44,10 @@ export default function SchoolsModule({ onBack }: Props) {
   const [requestAgreed, setRequestAgreed] = useState(false);
   const [editingCourse, setEditingCourse] = useState<SchoolCourse | null>(null);
   const bannerRef = useRef<HTMLInputElement>(null);
+  // Запись на курс школы (с витрины)
+  const [enrollCourse, setEnrollCourse] = useState<SchoolCourse | null>(null);
+  const [enrollFio, setEnrollFio] = useState("");
+  const [enrollPhone, setEnrollPhone] = useState("");
 
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
 
@@ -102,6 +108,7 @@ export default function SchoolsModule({ onBack }: Props) {
           <Field label="Название курса" value={editingCourse.title} onChange={v => setEditingCourse(c => c && { ...c, title: v })} />
           <Field label="Количество часов" value={editingCourse.hours} onChange={v => setEditingCourse(c => c && { ...c, hours: v })} placeholder="Например: 40 ч" />
           <Field label="Категория слушателей" value={editingCourse.audience} onChange={v => setEditingCourse(c => c && { ...c, audience: v })} placeholder="Например: Специалисты ОТ" />
+          <Field label="Описание курса" value={editingCourse.description || ""} onChange={v => setEditingCourse(c => c && { ...c, description: v })} textarea placeholder="Краткое описание курса для слушателей" />
           <button onClick={() => { const me = mySchool || ensureMySchool(); updateMine({ courses: me.courses.some(c => c.id === editingCourse.id) ? me.courses.map(c => c.id === editingCourse.id ? editingCourse : c) : [...me.courses, editingCourse] }); showToast("✅ Сохранено"); setView("cabinet"); }} disabled={!editingCourse.title.trim()} className="btn-primary flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}><Icon name="Check" size={18} />Сохранить</button>
         </div>
       </div>
@@ -176,11 +183,43 @@ export default function SchoolsModule({ onBack }: Props) {
           <div>
             <p className="text-xs font-semibold text-white/40 uppercase tracking-wider px-1 mb-2 flex items-center gap-1.5"><Icon name="GraduationCap" size={13} color="#6366f1" />Курсы школы</p>
             <div className="space-y-2">
-              {selected.courses.map(c => <div key={c.id} className="glass rounded-xl p-3"><p className="text-sm font-medium text-white">{c.title}</p><p className="text-xs text-white/40 mt-1">{c.hours} · {c.audience}</p></div>)}
+              {selected.courses.map(c => (
+                <div key={c.id} className="glass rounded-xl p-3">
+                  <p className="text-sm font-medium text-white">{c.title}</p>
+                  <p className="text-xs text-white/40 mt-1">{c.hours} · {c.audience}</p>
+                  {c.description && <p className="text-xs text-white/50 mt-1.5">{c.description}</p>}
+                  <button onClick={() => { setEnrollCourse(c); setEnrollFio(""); setEnrollPhone(currentUser.phone || ""); }} className="mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold text-white" style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}>
+                    <Icon name="UserPlus" size={14} />Записаться на курс
+                  </button>
+                </div>
+              ))}
               {selected.courses.length === 0 && <p className="text-center py-4 text-white/30 text-sm">Курсы не добавлены</p>}
             </div>
           </div>
         </div>
+
+        {/* Модалка записи на курс школы */}
+        {enrollCourse && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }} onClick={() => setEnrollCourse(null)}>
+            <div className="w-full max-w-md mx-4 mb-4 sm:mb-0 glass-strong rounded-3xl p-6 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }} onClick={e => e.stopPropagation()}>
+              <div className="flex items-center gap-2 mb-4"><div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.2)' }}><Icon name="UserPlus" size={16} color="#6366f1" /></div><h3 className="text-base font-bold text-white">Запись на курс</h3></div>
+              <p className="text-xs text-white/40 mb-3">{enrollCourse.title} · {selected.name}</p>
+              <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">ФИО</label>
+              <input className="input-field mb-3" placeholder="Иванов Иван Иванович" value={enrollFio} onChange={e => setEnrollFio(e.target.value)} />
+              <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Номер телефона</label>
+              <input className="input-field mb-4" type="tel" placeholder="+7 (___) ___-__-__" value={enrollPhone} onChange={e => setEnrollPhone(e.target.value)} />
+              <div className="flex gap-2">
+                <button onClick={() => setEnrollCourse(null)} className="btn-ghost flex-1 text-sm">Отмена</button>
+                <button onClick={() => {
+                  if (enrollFio.trim() && enrollPhone.replace(/\D/g, "").length >= 10) {
+                    setAllEnrollments(prev => [{ id: Date.now(), courseId: enrollCourse.id, courseTitle: enrollCourse.title, fio: enrollFio, phone: enrollPhone, date: new Date().toLocaleDateString("ru-RU"), ownerId: selected.ownerId, schoolName: selected.name }, ...prev]);
+                    setEnrollCourse(null); showToast("✅ Вы записаны на курс!");
+                  }
+                }} disabled={!enrollFio.trim() || enrollPhone.replace(/\D/g, "").length < 10} className="btn-primary flex-1 text-sm flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}><Icon name="Check" size={15} />Записаться</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -194,7 +233,7 @@ export default function SchoolsModule({ onBack }: Props) {
           <div className="flex items-center gap-2">
             <button onClick={onBack} className="p-2 rounded-xl hover:bg-white/10 transition-colors flex-shrink-0"><Icon name="ArrowLeft" size={20} color="white" /></button>
             <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.3)' }}><Icon name="School" size={16} color="#6366f1" /></div>
-            <div className="flex-1"><h1 className="text-base font-bold text-white">Школы</h1><p className="text-xs text-white/40">{filtered.length} организаций</p></div>
+            <div className="flex-1"><h1 className="text-base font-bold text-white">{embedded ? "Курсы по школам" : "Школы"}</h1><p className="text-xs text-white/40">{filtered.length} организаций</p></div>
             {isSchool && <button onClick={() => setView("cabinet")} className="p-2 rounded-xl hover:bg-white/10 transition-colors"><Icon name="LayoutDashboard" size={18} color="#6366f1" /></button>}
           </div>
           {!isSchool && (

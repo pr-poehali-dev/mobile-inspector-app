@@ -109,15 +109,6 @@ const MODULES = [
     gradient: "from-sky-600/20 to-sky-900/10",
     count: "Каталог услуг",
   },
-  {
-    id: "schools" as AppScreen,
-    title: "Школы",
-    desc: "Учебные организации и курсы",
-    icon: "School",
-    color: "#6366f1",
-    gradient: "from-indigo-600/20 to-indigo-900/10",
-    count: "Каталог школ",
-  },
 ];
 
 export default function Dashboard({ user, onNavigate }: Props) {

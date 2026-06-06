@@ -12,7 +12,6 @@ import SupportModule from "@/components/modules/SupportModule";
 import AIModule from "@/components/modules/AIModule";
 import SalesModule from "@/components/modules/SalesModule";
 import ServicesModule from "@/components/modules/ServicesModule";
-import SchoolsModule from "@/components/modules/SchoolsModule";
 import ProfileScreen from "@/components/ProfileScreen";
 import AdminPanel from "@/components/AdminPanel";
 import UsersScreen from "@/components/UsersScreen";
@@ -32,7 +31,6 @@ export type AppScreen =
   | "ai"
   | "sales"
   | "services"
-  | "schools"
   | "profile"
   | "admin"
   | "users";
@@ -87,7 +85,6 @@ function AppShell({ user, onLogout }: { user: User; onLogout: () => void }) {
       {screen === "ai" && <AIModule onBack={() => navigate("dashboard")} />}
       {screen === "sales" && <SalesModule onBack={() => navigate("dashboard")} />}
       {screen === "services" && <ServicesModule onBack={() => navigate("dashboard")} />}
-      {screen === "schools" && <SchoolsModule onBack={() => navigate("dashboard")} />}
       {screen === "profile" && <ProfileScreen onBack={() => navigate("dashboard")} onLogout={onLogout} onNavigate={navigate} />}
       {screen === "admin" && <AdminPanel onBack={() => navigate("dashboard")} />}
       {screen === "users" && <UsersScreen onBack={() => navigate("dashboard")} onNavigate={navigate} />}

@@ -69,7 +69,7 @@ interface Homework {
 
 interface Group { id: number; courseId: number; name: string; startDate: string; }
 interface Lesson_Plan { id: number; groupId: number; courseTitle: string; title: string; date: string; time: string; }
-interface Enrollment { id: number; courseId: number; courseTitle: string; fio: string; phone: string; date: string; }
+interface Enrollment { id: number; courseId: number; courseTitle: string; fio: string; phone: string; date: string; ownerId?: number; schoolName?: string; }
 
 const newLesson = (type: LessonType): Lesson => ({
   id: Date.now(), title: LESSON_TYPES[type].label, type, content: "", images: [], files: [], completion: "Посмотреть до конца",
@@ -140,6 +140,8 @@ export default function SchoolAdmin({ onBack }: Props) {
 
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2200); };
   const activeCourse = courses.find(c => c.id === activeCourseId) || courses[0];
+  // Записи на курсы этой школы (по ownerId владельца). Старые записи без ownerId показываем тоже.
+  const myEnrollments = enrollments.filter(e => e.ownerId === undefined || e.ownerId === currentUser.id);
 
   // ── Конструктор: операции ──
   const addCourse = () => { const id = Date.now(); setCourses(prev => [...prev, { id, title: "", modules: [], published: false, documentName: "", documentHow: "", certSample: "" }]); setActiveCourseId(id); showToast("Курс создан — задайте название"); };
@@ -180,7 +182,7 @@ export default function SchoolAdmin({ onBack }: Props) {
     { k: "students", label: "Ученики", icon: "Users" },
     { k: "homework", label: "Проверка ДЗ", icon: "ClipboardCheck", badge: homework.filter(h => h.status === "pending").length },
     { k: "groups", label: "Группы", icon: "CalendarDays" },
-    { k: "enroll", label: "Записи", icon: "UserPlus", badge: enrollments.length },
+    { k: "enroll", label: "Записи", icon: "UserPlus", badge: myEnrollments.length },
     { k: "analytics", label: "Аналитика", icon: "BarChart3" },
     { k: "settings", label: "Доступ", icon: "Settings" },
   ] as const;
@@ -440,8 +442,8 @@ export default function SchoolAdmin({ onBack }: Props) {
         {tab === "enroll" && (
           <div className="space-y-3">
             <p className="text-xs text-white/40 px-1">Записи поступают от пользователей через раздел «Обучение» по опубликованным курсам.</p>
-            {enrollments.length === 0 && <div className="text-center py-10 text-white/30 text-sm">Пока нет записей на курсы</div>}
-            {enrollments.map(en => (
+            {myEnrollments.length === 0 && <div className="text-center py-10 text-white/30 text-sm">Пока нет записей на курсы</div>}
+            {myEnrollments.map(en => (
               <div key={en.id} className="glass rounded-2xl p-4">
                 <div className="flex items-center justify-between mb-1"><p className="text-sm font-semibold text-white">{en.fio}</p><span className="text-xs text-white/40">{en.date}</span></div>
                 <p className="text-xs text-white/50 flex items-center gap-1"><Icon name="Phone" size={11} />{en.phone}</p>
