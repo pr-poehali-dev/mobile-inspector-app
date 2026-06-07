@@ -249,7 +249,7 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
   ]);
   const [blockedContent, setBlockedContent] = useStored<BlockedContentRef[]>("blockedContent", []);
   const [purchasedDocs, setPurchasedDocs] = useStored<number[]>("purchasedDocs", []);
-  const [myStats, setMyStats] = useStored<AppStats>("myStats", { videos: 0, news: 0, documents: 12, courses: 2, tickets: 3, checklists: 5 });
+  const [myStats, setMyStats] = useStored<AppStats>("myStats", { videos: 0, news: 0, documents: 0, courses: 0, tickets: 0, checklists: 0 });
   const [categories, setCategories] = useStored<Record<string, string[]>>("categories", DEFAULT_CATEGORIES);
   const [theme, setThemeState] = useStored<ThemeMode>("theme", "dark");
   const [lang, setLang] = useStored<Lang>("lang", "ru");

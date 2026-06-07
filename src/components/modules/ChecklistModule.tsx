@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
+import { usePersistentState } from "@/hooks/usePersistentState";
 import {
   AnswerValue, ChecklistData, Area, Sphere, ViewMode, QuestionState, HistoryRecord, INITIAL_SPHERES,
 } from "./checklist/data";
@@ -29,7 +30,8 @@ export default function ChecklistModule({ onBack }: Props) {
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [objectName, setObjectName] = useState("");
   const [pendingChecklist, setPendingChecklist] = useState<ChecklistData | null>(null);
-  const [history, setHistory] = useState<HistoryRecord[]>([]);
+  // История проверок сохраняется в профиле пользователя (по его id)
+  const [history, setHistory] = usePersistentState<HistoryRecord[]>(`checklist_history_${currentUser?.id ?? "guest"}`, []);
   const [historyRecord, setHistoryRecord] = useState<HistoryRecord | null>(null);
   const photoQIdRef = useRef<number | null>(null);
   const photoFileRef = useRef<HTMLInputElement>(null);
@@ -102,6 +104,8 @@ export default function ChecklistModule({ onBack }: Props) {
       questions: selectedChecklist.questions.map(q => ({ text: q.text, answer: getQState(q.id).answer, note: getQState(q.id).note, photos: getQState(q.id).photos })),
     };
     setHistory(prev => [rec, ...prev]);
+    // После сохранения — переходим на экран истории проверок пользователя
+    setView("history");
   };
 
   const downloadPhoto = (dataUrl: string, idx: number) => {

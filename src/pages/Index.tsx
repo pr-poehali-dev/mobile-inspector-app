@@ -44,20 +44,29 @@ export interface User {
   editorRequestPending?: boolean;
 }
 
+// Стабильный числовой id по номеру телефона — идентичность пользователя сохраняется между входами
+function idFromPhone(phone: string): number {
+  const digits = (phone || "").replace(/\D/g, "");
+  let hash = 0;
+  for (let i = 0; i < digits.length; i++) hash = (hash * 31 + digits.charCodeAt(i)) % 1000000007;
+  // Сдвигаем диапазон, чтобы не пересекаться с демо-пользователями (id 1..50)
+  return 1000 + (hash % 9_000_000);
+}
+
 function makeAppUser(u: User): AppUser {
   const isAdmin = u.phone === ADMIN_PHONE || u.role === "admin";
   return {
-    id: 1,
+    id: isAdmin ? 1 : idFromPhone(u.phone),
     phone: u.phone,
     name: u.name,
-    email: "ivan@mail.ru",
+    email: "",
     location: "Москва",
     avatar: u.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(),
     roles: isAdmin ? ["admin"] : [u.role],
     blocked: false,
     bannedFromForum: false,
-    subscribers: [2, 3],
-    subscriptions: [4],
+    subscribers: [],
+    subscriptions: [],
     bio: "",
     createdAt: new Date().toLocaleDateString("ru-RU"),
   };

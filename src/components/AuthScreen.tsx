@@ -6,9 +6,26 @@ interface Props {
   onLogin: (user: User) => void;
 }
 
-type Step = "phone" | "otp" | "consent" | "admin";
+type Step = "welcome" | "phone" | "otp" | "consent" | "credentials" | "login" | "admin";
 
 const ADMIN_PHONE_DIGITS = "79682619505";
+
+// ── Хранилище аккаунтов (demo, localStorage). Идентичность по номеру телефона. ──
+interface StoredAccount { phone: string; name: string; login: string; password: string; }
+const ACCOUNTS_KEY = "mi_accounts_v1";
+function loadAccounts(): StoredAccount[] {
+  try { return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]"); } catch { return []; }
+}
+function saveAccount(acc: StoredAccount) {
+  const list = loadAccounts().filter(a => a.phone !== acc.phone);
+  list.push(acc);
+  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list));
+}
+function findAccount(loginOrPhone: string): StoredAccount | undefined {
+  const id = loginOrPhone.trim().toLowerCase();
+  const digits = loginOrPhone.replace(/\D/g, "");
+  return loadAccounts().find(a => a.login.toLowerCase() === id || a.phone === digits);
+}
 
 const LEGAL_DOCS = [
   {
@@ -94,12 +111,20 @@ const LEGAL_DOCS = [
 ];
 
 export default function AuthScreen({ onLogin }: Props) {
-  const [step, setStep] = useState<Step>("phone");
+  const [step, setStep] = useState<Step>("welcome");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState(["", "", "", ""]);
   const [consents, setConsents] = useState({ terms: false, privacy: false, pd: false });
   const [loading, setLoading] = useState(false);
   const [openDoc, setOpenDoc] = useState<string | null>(null);
+  // Регистрация: логин, пароль, имя
+  const [regName, setRegName] = useState("");
+  const [regLogin, setRegLogin] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  // Вход: логин/телефон + пароль
+  const [loginId, setLoginId] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [authError, setAuthError] = useState("");
   const otpRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)];
 
   const formatPhone = (val: string) => {
@@ -151,24 +176,42 @@ export default function AuthScreen({ onLogin }: Props) {
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
-      const isNew = code === "1234";
-      if (isNew) {
-        setStep("consent");
-      } else {
-        onLogin({ phone, name: "Иван Петров", role: "user" });
-      }
+      // Любой 4-значный код подтверждает номер. Дальше — согласие и создание логина/пароля.
+      if (code.length === 4) setStep("consent");
     }, 800);
   };
 
   const allConsents = consents.terms && consents.privacy && consents.pd;
 
-  const handleRegister = () => {
+  // Регистрация: после согласия переходим к созданию логина и пароля
+  const handleAcceptConsents = () => {
     if (!allConsents) return;
+    setStep("credentials");
+  };
+
+  const canFinishReg = regName.trim().length >= 2 && regLogin.trim().length >= 3 && regPassword.length >= 4;
+  const handleFinishRegister = () => {
+    if (!canFinishReg) return;
+    if (findAccount(regLogin)) { setAuthError("Такой логин уже занят"); return; }
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
-      onLogin({ phone, name: "Новый пользователь", role: "user" });
-    }, 800);
+      saveAccount({ phone, name: regName.trim(), login: regLogin.trim(), password: regPassword });
+      onLogin({ phone, name: regName.trim(), role: "user" });
+    }, 700);
+  };
+
+  // Вход по существующему аккаунту (логин или телефон + пароль)
+  const handleExistingLogin = () => {
+    setAuthError("");
+    const acc = findAccount(loginId);
+    if (!acc) { setAuthError("Аккаунт не найден. Зарегистрируйтесь."); return; }
+    if (acc.password !== loginPassword) { setAuthError("Неверный пароль"); return; }
+    setLoading(true);
+    setTimeout(() => {
+      setLoading(false);
+      onLogin({ phone: acc.phone, name: acc.name, role: "user" });
+    }, 600);
   };
 
   const currentDoc = LEGAL_DOCS.find(d => d.id === openDoc);
@@ -219,6 +262,79 @@ export default function AuthScreen({ onLogin }: Props) {
         {/* Card */}
         <div className="glass-strong rounded-2xl p-6 animate-fade-up opacity-0 delay-150" style={{ animationFillMode: 'forwards' }}>
 
+          {step === "welcome" && (
+            <div className="space-y-4 animate-scale-in">
+              <div className="text-center">
+                <h2 className="text-xl font-bold text-white mb-1">Добро пожаловать</h2>
+                <p className="text-white/50 text-sm">Войдите или создайте новый аккаунт</p>
+              </div>
+              <button
+                className="btn-primary flex items-center justify-center gap-2"
+                onClick={() => { setAuthError(""); setStep("phone"); }}
+              >
+                <Icon name="UserPlus" size={18} /> Зарегистрироваться
+              </button>
+              <button
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors"
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}
+                onClick={() => { setAuthError(""); setStep("login"); }}
+              >
+                <Icon name="LogIn" size={18} /> У меня уже есть аккаунт
+              </button>
+            </div>
+          )}
+
+          {step === "login" && (
+            <div className="space-y-5 animate-scale-in">
+              <div>
+                <button onClick={() => { setStep("welcome"); setAuthError(""); }} className="flex items-center gap-1 text-white/50 text-sm mb-3 hover:text-white/80 transition-colors">
+                  <Icon name="ArrowLeft" size={16} /> Назад
+                </button>
+                <h2 className="text-xl font-bold text-white mb-1">Вход в аккаунт</h2>
+                <p className="text-white/50 text-sm">Введите логин или телефон и пароль</p>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Логин или телефон</label>
+                <input className="input-field" value={loginId} onChange={e => { setLoginId(e.target.value); setAuthError(""); }} placeholder="Ваш логин" autoFocus />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Пароль</label>
+                <input className="input-field" type="password" value={loginPassword} onChange={e => { setLoginPassword(e.target.value); setAuthError(""); }} placeholder="••••••" onKeyDown={e => e.key === "Enter" && handleExistingLogin()} />
+              </div>
+              {authError && <p className="text-xs text-red-400">{authError}</p>}
+              <button className="btn-primary flex items-center justify-center gap-2" onClick={handleExistingLogin} disabled={!loginId.trim() || !loginPassword || loading}>
+                {loading ? <><Icon name="Loader2" size={18} className="animate-spin" /> Вход...</> : <><Icon name="LogIn" size={18} /> Войти</>}
+              </button>
+              <button onClick={() => { setStep("phone"); setAuthError(""); }} className="btn-ghost w-full text-sm">Нет аккаунта? Зарегистрироваться</button>
+            </div>
+          )}
+
+          {step === "credentials" && (
+            <div className="space-y-5 animate-scale-in">
+              <div>
+                <div className="inline-flex items-center gap-2 tag mb-3"><Icon name="ShieldCheck" size={13} /> Номер подтверждён</div>
+                <h2 className="text-xl font-bold text-white mb-1">Создайте логин и пароль</h2>
+                <p className="text-white/50 text-sm">Эти данные понадобятся для входа</p>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Имя</label>
+                <input className="input-field" value={regName} onChange={e => setRegName(e.target.value)} placeholder="Иван Петров" autoFocus />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Логин</label>
+                <input className="input-field" value={regLogin} onChange={e => { setRegLogin(e.target.value); setAuthError(""); }} placeholder="ivan_petrov" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Пароль</label>
+                <input className="input-field" type="password" value={regPassword} onChange={e => setRegPassword(e.target.value)} placeholder="минимум 4 символа" onKeyDown={e => e.key === "Enter" && handleFinishRegister()} />
+              </div>
+              {authError && <p className="text-xs text-red-400">{authError}</p>}
+              <button className="btn-primary flex items-center justify-center gap-2" onClick={handleFinishRegister} disabled={!canFinishReg || loading}>
+                {loading ? <><Icon name="Loader2" size={18} className="animate-spin" /> Создаём аккаунт...</> : <><Icon name="UserCheck" size={18} /> Завершить регистрацию</>}
+              </button>
+            </div>
+          )}
+
           {step === "admin" && (
             <div className="space-y-5 animate-scale-in">
               <div>
@@ -257,7 +373,10 @@ export default function AuthScreen({ onLogin }: Props) {
           {step === "phone" && (
             <div className="space-y-5">
               <div>
-                <h2 className="text-xl font-bold text-white mb-1">Вход в систему</h2>
+                <button onClick={() => setStep("welcome")} className="flex items-center gap-1 text-white/50 text-sm mb-3 hover:text-white/80 transition-colors">
+                  <Icon name="ArrowLeft" size={16} /> Назад
+                </button>
+                <h2 className="text-xl font-bold text-white mb-1">Регистрация</h2>
                 <p className="text-white/50 text-sm">Введите номер телефона — вышлем SMS-код</p>
               </div>
               <div>
@@ -296,7 +415,7 @@ export default function AuthScreen({ onLogin }: Props) {
                 </button>
                 <h2 className="text-xl font-bold text-white mb-1">Введите код</h2>
                 <p className="text-white/50 text-sm">Код отправлен на <span className="text-white font-medium">{formatPhone(phone)}</span></p>
-                <p className="text-xs text-blue-400 mt-1">Для демо: введите 1234 — новый пользователь, любой другой — существующий</p>
+                <p className="text-xs text-blue-400 mt-1">Для демо: введите любой 4-значный код</p>
               </div>
               <div className="flex gap-3 justify-center">
                 {otp.map((val, i) => (
@@ -360,14 +479,10 @@ export default function AuthScreen({ onLogin }: Props) {
               </div>
               <button
                 className="btn-primary flex items-center justify-center gap-2"
-                onClick={handleRegister}
+                onClick={handleAcceptConsents}
                 disabled={!allConsents || loading}
               >
-                {loading ? (
-                  <><Icon name="Loader2" size={18} className="animate-spin" /> Создаём аккаунт...</>
-                ) : (
-                  <><Icon name="UserCheck" size={18} /> Зарегистрироваться</>
-                )}
+                <Icon name="ArrowRight" size={18} /> Продолжить
               </button>
             </div>
           )}

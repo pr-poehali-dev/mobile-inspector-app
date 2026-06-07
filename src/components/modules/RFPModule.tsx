@@ -2,6 +2,12 @@ import { useState, useRef, useMemo } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
+import { usePersistentState } from "@/hooks/usePersistentState";
+
+// Сообщение чата между заказчиком и поставщиком
+interface RfpChatMessage { id: number; rfpId: number; supplierId: number; fromUserId: number; text: string; date: string; }
+// Уведомление о заинтересованности поставщику-победителю (в «мой кабинет»)
+interface InterestNotice { id: number; supplierId: number; rfpId: number; rfpTitle: string; fromName: string; date: string; }
 
 interface Props { onBack: () => void; }
 
@@ -78,7 +84,7 @@ const INITIAL_PROPOSALS: Proposal[] = [
   { id: 1004, rfpId: 2, rfpTitle: "Услуги по уборке помещений", supplierId: 102, company: "ИП Сидоров А.В.", price: 180000, delivery: "ежедневно", deliveryDays: 1, file: "uborka.pdf", manualRating: null, date: "02.06.2026" },
 ];
 
-type ViewMode = "list" | "create" | "edit" | "compare" | "upload" | "cabinet" | "request" | "payment" | "supplier" | "supplierEdit";
+type ViewMode = "list" | "create" | "edit" | "compare" | "upload" | "cabinet" | "request" | "payment" | "supplier" | "supplierEdit" | "chat";
 
 function parseDeadline(d: string): number {
   if (!d || d === "—") return Infinity;
@@ -98,6 +104,11 @@ export default function RFPModule({ onBack }: Props) {
   const [selectedRfp, setSelectedRfp] = useState<RFP | null>(null);
   const [editingRfp, setEditingRfp] = useState<RFP | null>(null);
   const [viewedSupplierId, setViewedSupplierId] = useState<number | null>(null);
+  // Чат заказчик↔поставщик и уведомления о заинтересованности (сохраняются)
+  const [chatMessages, setChatMessages] = usePersistentState<RfpChatMessage[]>("rfp_chats", []);
+  const [interestNotices, setInterestNotices] = usePersistentState<InterestNotice[]>("rfp_interests", []);
+  const [chatPeer, setChatPeer] = useState<{ rfpId: number; supplierId: number; company: string } | null>(null);
+  const [chatInput, setChatInput] = useState("");
   const [form, setForm] = useState({ title: "", desc: "", deadline: "", category: "", location: "", workTerm: "" });
   const [rfpList, setRfpList] = useState<RFP[]>(INITIAL_RFPS);
   const [suppliers, setSuppliers] = useState<Supplier[]>(INITIAL_SUPPLIERS);
@@ -131,6 +142,8 @@ export default function RFPModule({ onBack }: Props) {
 
   const myRfps = rfpList.filter(r => r.ownerId === currentUser.id);
   const myProposals = proposals.filter(p => p.supplierId === currentUser.id);
+  // Уведомления о заинтересованности, адресованные текущему поставщику (его supplierId === currentUser.id)
+  const myInterestNotices = interestNotices.filter(n => n.supplierId === currentUser.id);
 
   // Активные запросы для общего потока: статус Активен + дедлайн не прошёл
   const visibleRfps = rfpList.filter(r => r.status === "Активен" && parseDeadline(r.deadline) >= Date.now());
@@ -383,10 +396,12 @@ export default function RFPModule({ onBack }: Props) {
                           ))}
                         </div>
                       </div>
-                      {/* Кнопка выбора победителя — внутри карточки поставщика */}
-                      <button onClick={() => setWinnerContact({ company: p.company, supplierId: p.supplierId })} className="w-full py-2.5 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)' }}>
-                        <Icon name="Award" size={16} />Выбрать победителем
-                      </button>
+                      {/* Кнопка выбора победителя — доступна только автору заказа */}
+                      {(selectedRfp.ownerId === currentUser.id || isAdmin) && (
+                        <button onClick={() => setWinnerContact({ company: p.company, supplierId: p.supplierId })} className="w-full py-2.5 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)' }}>
+                          <Icon name="Award" size={16} />Выбрать победителем
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -414,10 +429,14 @@ export default function RFPModule({ onBack }: Props) {
                 <button onClick={() => { const s = supplierOf(winnerContact.supplierId); const phone = (s?.contacts || "").match(/[+\d][\d\s()-]{7,}/)?.[0]?.replace(/[\s()-]/g, "") || ""; if (phone) window.location.href = `tel:${phone}`; else showToast("Телефон не указан"); }} className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left" style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)' }}>
                   <Icon name="Phone" size={18} color="#10b981" /><span className="text-sm font-medium text-white flex-1">Позвонить поставщику</span><Icon name="ChevronRight" size={15} color="rgba(255,255,255,0.3)" />
                 </button>
-                <button onClick={() => { setWinnerContact(null); showToast(`💬 Чат с «${winnerContact.company}» открыт`); }} className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left" style={{ background: 'rgba(27,111,255,0.12)', border: '1px solid rgba(27,111,255,0.3)' }}>
+                <button onClick={() => { setChatPeer({ rfpId: selectedRfp.id, supplierId: winnerContact.supplierId, company: winnerContact.company }); setWinnerContact(null); setView("chat"); }} className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left" style={{ background: 'rgba(27,111,255,0.12)', border: '1px solid rgba(27,111,255,0.3)' }}>
                   <Icon name="MessageSquare" size={18} color="#4d8fff" /><span className="text-sm font-medium text-white flex-1">Написать в приложении</span><Icon name="ChevronRight" size={15} color="rgba(255,255,255,0.3)" />
                 </button>
-                <button onClick={() => { setWinnerContact(null); showToast("✅ Поставщик уведомлён о вашей заинтересованности"); }} className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left" style={{ background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)' }}>
+                <button onClick={() => {
+                  setInterestNotices(prev => [...prev, { id: Date.now(), supplierId: winnerContact.supplierId, rfpId: selectedRfp.id, rfpTitle: selectedRfp.title, fromName: currentUser.name, date: new Date().toLocaleString("ru-RU") }]);
+                  setWinnerContact(null);
+                  showToast("✅ Поставщик уведомлён о вашей заинтересованности");
+                }} className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left" style={{ background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)' }}>
                   <Icon name="Send" size={18} color="#8b5cf6" /><span className="text-sm font-medium text-white flex-1">Сообщить о заинтересованности</span><Icon name="ChevronRight" size={15} color="rgba(255,255,255,0.3)" />
                 </button>
               </div>
@@ -425,6 +444,42 @@ export default function RFPModule({ onBack }: Props) {
             </div>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // ── ЧАТ заказчик ↔ поставщик ──
+  if (view === "chat" && chatPeer) {
+    const thread = chatMessages.filter(m => m.rfpId === chatPeer.rfpId && m.supplierId === chatPeer.supplierId);
+    const sendMsg = () => {
+      if (!chatInput.trim()) return;
+      setChatMessages(prev => [...prev, { id: Date.now(), rfpId: chatPeer.rfpId, supplierId: chatPeer.supplierId, fromUserId: currentUser.id, text: chatInput.trim(), date: new Date().toLocaleString("ru-RU") }]);
+      setChatInput("");
+    };
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in flex flex-col">
+        {toast && <Toast msg={toast} />}
+        <ModuleHeader title={chatPeer.company} onBack={() => setView("compare")} icon="MessageSquare" iconColor="#4d8fff" subtitle="Чат по заказу" />
+        <div className="max-w-2xl mx-auto w-full px-4 pt-4 pb-28 flex-1 space-y-2">
+          {thread.length === 0 && <div className="text-center py-14"><Icon name="MessageSquare" size={32} color="rgba(255,255,255,0.2)" className="mx-auto mb-3" /><p className="text-white/30 text-sm">Начните диалог с поставщиком</p></div>}
+          {thread.map(m => {
+            const mine = m.fromUserId === currentUser.id;
+            return (
+              <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                <div className="max-w-[80%] rounded-2xl px-3.5 py-2.5" style={{ background: mine ? 'linear-gradient(135deg,#1b6fff,#0040cc)' : 'rgba(255,255,255,0.06)', border: mine ? 'none' : '1px solid rgba(255,255,255,0.1)' }}>
+                  <p className="text-sm text-white whitespace-pre-wrap">{m.text}</p>
+                  <p className="text-[10px] text-white/40 mt-1 text-right">{m.date}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="fixed bottom-0 left-0 right-0 glass border-t border-white/10 px-4 py-3">
+          <div className="max-w-2xl mx-auto flex items-center gap-2">
+            <input className="input-field flex-1" placeholder="Сообщение..." value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMsg()} />
+            <button onClick={sendMsg} className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg,#1b6fff,#0040cc)' }}><Icon name="Send" size={18} color="white" /></button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -480,6 +535,21 @@ export default function RFPModule({ onBack }: Props) {
             <div className="glass rounded-2xl p-4 text-center"><div className="text-2xl font-bold text-white">{myRfps.length}</div><div className="text-xs text-white/40">Мои запросы</div></div>
             <div className="glass rounded-2xl p-4 text-center"><div className="text-2xl font-bold text-white">{myProposals.length}</div><div className="text-xs text-white/40">Мои предложения</div></div>
           </div>
+
+          {/* Уведомления о заинтересованности заказчиков (победитель) */}
+          {myInterestNotices.length > 0 && (
+            <div className="glass rounded-2xl p-4" style={{ border: '1px solid rgba(139,92,246,0.3)' }}>
+              <p className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: '#8b5cf6' }}><Icon name="Award" size={14} color="#8b5cf6" />Вас выбрали победителем ({myInterestNotices.length})</p>
+              <div className="space-y-2">
+                {myInterestNotices.map(n => (
+                  <div key={n.id} className="rounded-xl p-3" style={{ background: 'rgba(139,92,246,0.08)' }}>
+                    <p className="text-sm text-white font-medium">{n.rfpTitle}</p>
+                    <p className="text-xs text-white/50 mt-0.5">Заказчик: {n.fromName} · {n.date}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {isExecutor && (
             <button onClick={() => { const s = mySupplier || { id: currentUser.id, name: currentUser.name, about: "", permit: "", location: currentUser.location || "", contacts: currentUser.phone || "", site: "", completedOrders: 0, verified: false }; setViewedSupplierId(currentUser.id); if (!mySupplier) setSuppliers(prev => [...prev, s]); setView("supplier"); }} className="w-full flex items-center gap-3 p-4 rounded-2xl text-left" style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)' }}>

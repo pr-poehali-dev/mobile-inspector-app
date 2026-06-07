@@ -17,7 +17,7 @@ const MODULES = [
     icon: "Play",
     color: "#ef4444",
     gradient: "from-red-600/20 to-red-900/10",
-    count: "24 видео",
+    count: "6 видео",
   },
   {
     id: "news" as AppScreen,
@@ -26,7 +26,7 @@ const MODULES = [
     icon: "Newspaper",
     color: "#f59e0b",
     gradient: "from-amber-600/20 to-amber-900/10",
-    count: "12 новостей",
+    count: "4 новости",
   },
   {
     id: "documents" as AppScreen,
@@ -35,7 +35,7 @@ const MODULES = [
     icon: "FolderOpen",
     color: "#10b981",
     gradient: "from-emerald-600/20 to-emerald-900/10",
-    count: "87 файлов",
+    count: "4 документа",
   },
   {
     id: "rfp" as AppScreen,
@@ -53,7 +53,7 @@ const MODULES = [
     icon: "CheckSquare",
     color: "#06b6d4",
     gradient: "from-cyan-600/20 to-cyan-900/10",
-    count: "8 шаблонов",
+    count: "8 чек-листов",
   },
   {
     id: "forum" as AppScreen,
@@ -62,7 +62,7 @@ const MODULES = [
     icon: "MessageSquare",
     color: "#f97316",
     gradient: "from-orange-600/20 to-orange-900/10",
-    count: "145 тем",
+    count: "4 темы",
   },
   {
     id: "learning" as AppScreen,
@@ -71,7 +71,7 @@ const MODULES = [
     icon: "GraduationCap",
     color: "#3b82f6",
     gradient: "from-blue-600/20 to-blue-900/10",
-    count: "6 курсов",
+    count: "4 курса",
   },
   {
     id: "support" as AppScreen,

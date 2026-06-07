@@ -24,7 +24,9 @@ const QUESTIONS = [
 ];
 
 export default function LearningModule({ onBack }: Props) {
-  const { isAdmin } = useApp();
+  const { isAdmin, hasRole, currentUser, addRoleRequest, roleRequests } = useApp();
+  const isSchool = isAdmin || hasRole("school");
+  const mySchoolReq = roleRequests.filter(r => r.userId === currentUser.id && r.role === "school").slice(-1)[0];
   const [view, setView] = useState<"list" | "course" | "lesson" | "test" | "cert">("list");
   const [school, setSchool] = useState(false); // режим администратора школы
   const [browseMode, setBrowseMode] = useState<"all" | "schools">("all"); // поиск по общему потоку / по школам
@@ -389,6 +391,18 @@ export default function LearningModule({ onBack }: Props) {
           <button onClick={() => setBrowseMode("all")} className="flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-all" style={{ background: browseMode === "all" ? 'linear-gradient(135deg,#3b82f6,#2563eb)' : 'transparent', color: browseMode === "all" ? 'white' : 'rgba(255,255,255,0.5)' }}><Icon name="LayoutGrid" size={15} color={browseMode === "all" ? "white" : "rgba(255,255,255,0.5)"} />Все курсы</button>
           <button onClick={() => setBrowseMode("schools")} className="flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-all" style={{ background: 'transparent', color: 'rgba(255,255,255,0.5)' }}><Icon name="School" size={15} color="rgba(255,255,255,0.5)" />По школам</button>
         </div>
+        {/* Заявка на роль «Школа» — прямо в библиотеке обучения */}
+        {!isSchool && (
+          <div className="max-w-2xl mx-auto mt-3">
+            {mySchoolReq && mySchoolReq.status === "pending" ? (
+              <div className="flex items-center gap-2.5 py-2.5 px-3 rounded-xl" style={{ background: 'rgba(245,158,11,0.1)', border: '1px dashed rgba(245,158,11,0.35)' }}><Icon name="Clock" size={16} color="#f59e0b" /><span className="text-sm font-medium text-white flex-1">Заявка на роль «Школа» на рассмотрении</span></div>
+            ) : (
+              <button onClick={() => { addRoleRequest("school", currentUser.phone); setToast("📩 Заявка на роль «Школа» отправлена администратору"); }} className="w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl text-left" style={{ background: 'rgba(99,102,241,0.12)', border: '1px dashed rgba(99,102,241,0.4)' }}>
+                <Icon name="School" size={16} color="#6366f1" /><span className="text-sm font-medium text-white flex-1">Стать школой — заявка на роль «Школа» (бесплатно)</span><Icon name="ChevronRight" size={15} color="rgba(99,102,241,0.6)" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
       <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
         {COURSES.map((course, i) => (

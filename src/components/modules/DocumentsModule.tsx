@@ -63,7 +63,7 @@ const INITIAL_DOCS: DocItem[] = [
   { id: 4, name: "Инструкция по охране труда 2024", category: "Инструкции", direction: "Внутренний", dept: "ОТиТБ", date: "25.05.2026", size: "2.1 МБ", ownerId: 4, ownerName: "Мария Иванова", paid: true, price: 1200, content: SAMPLE_TEXT, files: { pdf: "instrukciya_ot.pdf" } },
 ];
 
-type ViewMode = "list" | "viewer" | "add" | "cabinet" | "request" | "requisites" | "payment";
+type ViewMode = "list" | "viewer" | "add" | "cabinet" | "request" | "requisites" | "payment" | "purchases";
 
 function primaryFormat(files: DocFiles): keyof DocFiles {
   if (files.pdf) return "pdf";
@@ -73,7 +73,7 @@ function primaryFormat(files: DocFiles): keyof DocFiles {
 }
 
 export default function DocumentsModule({ onBack }: Props) {
-  const { currentUser, hasRole, isAdmin, categories, addRoleRequest, roleRequests, payForRole, roleGrants, bumpStat, isContentBlocked, purchaseDoc, isDocPurchased } = useApp();
+  const { currentUser, hasRole, isAdmin, categories, addRoleRequest, roleRequests, payForRole, roleGrants, bumpStat, isContentBlocked, purchaseDoc, isDocPurchased, purchasedDocs } = useApp();
   const CATEGORIES = ["Все", ...(categories.documents || [])];
 
   const [docs, setDocs] = useState<DocItem[]>(INITIAL_DOCS);
@@ -515,6 +515,43 @@ export default function DocumentsModule({ onBack }: Props) {
     );
   }
 
+  // ── МОИ ПОКУПКИ ──
+  if (view === "purchases") {
+    const purchased = docs.filter(d => purchasedDocs.includes(d.id));
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        {toast && <Toast msg={toast} />}
+        <ModuleHeader title="Мои покупки" onBack={() => setView("list")} icon="ShoppingBag" iconColor="#10b981" subtitle={`${purchased.length} документов`} />
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
+          <div className="glass rounded-2xl p-3 flex items-start gap-2.5" style={{ border: '1px solid rgba(16,185,129,0.25)' }}>
+            <Icon name="Info" size={14} color="#10b981" className="flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-white/60">Купленные документы доступны вам в любое время без повторной оплаты.</p>
+          </div>
+          {purchased.map(doc => {
+            const fi = FORMAT_META[primaryFormat(doc.files)];
+            return (
+              <button key={doc.id} onClick={() => { setDownloadOpen(false); setSelected(doc); setView("viewer"); }} className="w-full text-left glass rounded-2xl p-4 hover:border-white/20 transition-all">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${fi.color}15`, border: `1px solid ${fi.color}30` }}><Icon name={fi.icon} size={20} color={fi.color} /></div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white leading-snug mb-1">{doc.name}</p>
+                    <div className="flex flex-wrap gap-2 text-xs text-white/40">
+                      <span className="flex items-center gap-1"><Icon name="User" size={11} />{doc.ownerName}</span>
+                      <span className="flex items-center gap-1"><Icon name="Calendar" size={11} />{doc.date}</span>
+                      <span className="px-2 py-0.5 rounded-lg" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>Оплачено · {doc.price} ₽</span>
+                    </div>
+                  </div>
+                  <Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.3)" />
+                </div>
+              </button>
+            );
+          })}
+          {purchased.length === 0 && <div className="text-center py-14"><Icon name="ShoppingBag" size={32} color="rgba(255,255,255,0.2)" className="mx-auto mb-3" /><p className="text-white/30 text-sm">У вас пока нет купленных документов</p></div>}
+        </div>
+      </div>
+    );
+  }
+
   // ── MAIN LIST ──
   return (
     <div className="min-h-screen relative z-10 animate-fade-in">
@@ -525,6 +562,7 @@ export default function DocumentsModule({ onBack }: Props) {
             <button onClick={onBack} className="p-2 rounded-xl hover:bg-white/10 transition-colors flex-shrink-0"><Icon name="ArrowLeft" size={20} color="white" /></button>
             <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(16,185,129,0.2)', border: '1px solid rgba(16,185,129,0.3)' }}><Icon name="FolderOpen" size={16} color="#10b981" /></div>
             <h1 className="text-base font-bold text-white flex-1">Документооборот</h1>
+            <button onClick={() => setView("purchases")} className="p-2 rounded-xl hover:bg-white/10 transition-colors relative" title="Мои покупки"><Icon name="ShoppingBag" size={18} color="#10b981" />{purchasedDocs.length > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full flex items-center justify-center text-white font-bold" style={{ background: '#10b981', fontSize: '9px' }}>{purchasedDocs.length}</span>}</button>
             {isDocumentor && <button onClick={() => setView("cabinet")} className="p-2 rounded-xl hover:bg-white/10 transition-colors"><Icon name="LayoutDashboard" size={18} color="#10b981" /></button>}
           </div>
           {isDocumentor ? (
