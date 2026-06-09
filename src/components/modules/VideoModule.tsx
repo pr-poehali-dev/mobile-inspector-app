@@ -62,7 +62,7 @@ const INITIAL_VIDEOS: VideoItem[] = [
   { id: 6, title: "Информационная безопасность: защита персональных данных", description: "152-ФЗ в деталях: обработка ПД, защита от утечек, организация работы с персональными данными.", hashtags: ["#инфобез", "#персональные_данные", "#152фз"], category: "Информационная безопасность", author: DEMO_AUTHORS[2], views: 1890, likes: 124, favoritedBy: 56, date: "20.05.2026", duration: "28:45", thumbnail: THUMB_COLORS[5], comments: [] },
 ];
 
-type TabType = "all" | "favorites";
+type TabType = "all" | "favorites" | "subscribed";
 type ViewType = "feed" | "player" | "channel" | "add" | "request" | "admin_requests" | "studio" | "payment";
 
 const CONTENT_MAKER_PRICE = 4999;
@@ -146,7 +146,10 @@ export default function VideoModule({ onBack }: Props) {
   };
 
   const filtered = useMemo(() => {
-    let list = tab === "favorites" ? videos.filter(v => favorites.includes(v.id)) : videos;
+    let list = videos;
+    if (tab === "favorites") list = list.filter(v => favorites.includes(v.id));
+    // «Я подписался» — только видео авторов, на которых подписан пользователь
+    if (tab === "subscribed") list = list.filter(v => subscribedAuthors.includes(v.author.id));
     if (!isAdmin) list = list.filter(v => !isContentBlocked("video", v.id));
     if (category !== "Все") list = list.filter(v => v.category === category);
     if (search.trim()) {
@@ -154,7 +157,7 @@ export default function VideoModule({ onBack }: Props) {
       list = list.filter(v => v.title.toLowerCase().includes(q) || v.description.toLowerCase().includes(q) || v.hashtags.some(h => h.toLowerCase().includes(q)) || v.author.name.toLowerCase().includes(q));
     }
     return list;
-  }, [videos, tab, category, search, favorites, isAdmin, isContentBlocked]);
+  }, [videos, tab, category, search, favorites, subscribedAuthors, isAdmin, isContentBlocked]);
 
   const channelVideos = useMemo(() => channelAuthor ? videos.filter(v => v.author.id === channelAuthor.id) : [], [videos, channelAuthor]);
   const myVideos = useMemo(() => videos.filter(v => v.author.id === myAuthorId), [videos]);
@@ -547,15 +550,22 @@ export default function VideoModule({ onBack }: Props) {
 
           <div className="relative">
             <Icon name="Search" size={15} color="rgba(255,255,255,0.3)" className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input className="input-field pl-9 pr-9 py-2.5 text-sm" placeholder="Поиск по названию, #хэштегу, автору..." value={search} onChange={e => setSearch(e.target.value)} />
+            <input className="input-field pl-12 pr-9 py-2.5 text-sm" placeholder="Поиск по заголовку, тексту, автору..." value={search} onChange={e => setSearch(e.target.value)} />
             {search && <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2"><Icon name="X" size={15} color="rgba(255,255,255,0.4)" /></button>}
           </div>
           <div className="flex gap-2">
-            {(["all", "favorites"] as TabType[]).map(t => (
-              <button key={t} onClick={() => setTab(t)} className={`flex-1 py-2 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${tab === t ? "text-white" : "text-white/50"}`} style={{ background: tab === t ? (t === "all" ? 'linear-gradient(135deg,#ef4444,#dc2626)' : 'linear-gradient(135deg,#f59e0b,#d97706)') : 'rgba(255,255,255,0.06)', border: `1px solid ${tab === t ? (t === "all" ? 'rgba(239,68,68,0.5)' : 'rgba(245,158,11,0.5)') : 'rgba(255,255,255,0.1)'}` }}>
-                {t === "all" ? "Все видео" : <><Icon name="Star" size={14} color={tab === t ? "white" : "rgba(255,255,255,0.4)"} />Избранное {favorites.length > 0 && <span className="opacity-70 text-xs">({favorites.length})</span>}</>}
-              </button>
-            ))}
+            {(["all", "subscribed", "favorites"] as TabType[]).map(t => {
+              const active = tab === t;
+              const grad = t === "all" ? 'linear-gradient(135deg,#ef4444,#dc2626)' : t === "subscribed" ? 'linear-gradient(135deg,#3b82f6,#2563eb)' : 'linear-gradient(135deg,#f59e0b,#d97706)';
+              const border = t === "all" ? 'rgba(239,68,68,0.5)' : t === "subscribed" ? 'rgba(59,130,246,0.5)' : 'rgba(245,158,11,0.5)';
+              return (
+                <button key={t} onClick={() => setTab(t)} className={`flex-1 py-2 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${active ? "text-white" : "text-white/50"}`} style={{ background: active ? grad : 'rgba(255,255,255,0.06)', border: `1px solid ${active ? border : 'rgba(255,255,255,0.1)'}` }}>
+                  {t === "all" && "Все видео"}
+                  {t === "subscribed" && <><Icon name="UserCheck" size={14} color={active ? "white" : "rgba(255,255,255,0.4)"} />Я подписался{subscribedAuthors.length > 0 && <span className="opacity-70 text-xs">({subscribedAuthors.length})</span>}</>}
+                  {t === "favorites" && <><Icon name="Star" size={14} color={active ? "white" : "rgba(255,255,255,0.4)"} />Избранное{favorites.length > 0 && <span className="opacity-70 text-xs">({favorites.length})</span>}</>}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -569,7 +579,7 @@ export default function VideoModule({ onBack }: Props) {
         {(search || category !== "Все") && <p className="text-xs text-white/40 px-1">Найдено: {filtered.length} видео{search && ` по «${search}»`}</p>}
         {filtered.length > 0
           ? filtered.map((v, i) => <VideoCard key={v.id} video={v} isFav={favorites.includes(v.id)} onToggleFav={() => toggleFav(v)} onPlay={() => openVideo(v)} onAuthorClick={a => { setChannelAuthor(a); setView("channel"); }} onHashtagClick={tag => setSearch(tag)} animDelay={i * 0.05} />)
-          : <EmptyState text={tab === "favorites" ? "Вы ещё не добавили видео в избранное" : "Ничего не найдено"} />
+          : <EmptyState text={tab === "favorites" ? "Вы ещё не добавили видео в избранное" : tab === "subscribed" ? "Подпишитесь на авторов, чтобы видеть их видео здесь" : "Ничего не найдено"} />
         }
       </div>
     </div>
