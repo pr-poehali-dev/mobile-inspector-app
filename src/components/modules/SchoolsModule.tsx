@@ -18,8 +18,6 @@ interface ConstructorCourse {
   price?: number;
 }
 
-interface Props { onBack: () => void; embedded?: boolean; }
-
 // ── Структура данных школы (готова к переносу на сервер) ──
 interface SchoolCourse { id: number; title: string; hours: string; audience: string; description?: string; }
 interface Enrollment { id: number; courseId: number; courseTitle: string; fio: string; phone: string; date: string; ownerId?: number; schoolName?: string; }
@@ -44,12 +42,14 @@ const SEED_SCHOOLS: School[] = [
 
 type ViewMode = "list" | "profile" | "request" | "cabinet" | "constructor" | "editCourse" | "myCourses" | "courseDetail";
 
-export default function SchoolsModule({ onBack, embedded }: Props) {
+interface Props { onBack: () => void; embedded?: boolean; initialView?: ViewMode; }
+
+export default function SchoolsModule({ onBack, embedded, initialView }: Props) {
   const { currentUser, hasRole, isAdmin, addRoleRequest, roleRequests } = useApp();
 
   const [schools, setSchools] = usePersistentState<School[]>("schools_list", SEED_SCHOOLS);
   const [, setAllEnrollments] = usePersistentState<Enrollment[]>("school_enrollments_all", []);
-  const [view, setView] = useState<ViewMode>("list");
+  const [view, setView] = useState<ViewMode>(initialView || "list");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<string | null>(null);
@@ -66,6 +66,8 @@ export default function SchoolsModule({ onBack, embedded }: Props) {
   const [constructorCourses, setConstructorCourses] = usePersistentState<ConstructorCourse[]>(`school_courses_${currentUser.id}`, []);
   const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
   const [courseDetailTab, setCourseDetailTab] = useState<"students" | "homework" | "groups" | "enroll" | "analytics" | "access">("students");
+  const [pricingCourseId, setPricingCourseId] = useState<number | null>(null);
+  const [priceInput, setPriceInput] = useState("");
 
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
 
@@ -151,41 +153,102 @@ export default function SchoolsModule({ onBack, embedded }: Props) {
           ) : (
             constructorCourses.map((course, i) => {
               const lessonsTotal = course.modules.reduce((s, m) => s + m.lessons.length, 0);
+              const isPricing = pricingCourseId === course.id;
               return (
                 <div key={course.id} className="glass rounded-2xl overflow-hidden animate-fade-up opacity-0" style={{ animationDelay: `${i * 0.06}s`, animationFillMode: 'forwards' }}>
-                  {/* Шапка карточки */}
-                  <div className="p-4">
-                    <div className="flex items-start gap-3 mb-3">
+                  <div className="p-4 space-y-3">
+                    {/* Заголовок */}
+                    <div className="flex items-start gap-3">
                       <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(99,102,241,0.2)' }}>
                         <Icon name="BookOpen" size={20} color="#6366f1" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-white leading-snug">{course.title || "Без названия"}</p>
-                        <div className="flex flex-wrap items-center gap-2 mt-1">
-                          <span className="text-xs text-white/40">{course.modules.length} модулей · {lessonsTotal} уроков</span>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          <span className="text-xs text-white/40">{course.modules.length} мод. · {lessonsTotal} уроков</span>
                           <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: course.published ? 'rgba(16,185,129,0.15)' : 'rgba(148,163,184,0.15)', color: course.published ? '#10b981' : '#94a3b8' }}>
                             {course.published ? "Опубликован" : "Черновик"}
                           </span>
-                          {course.paid && <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>{(course.price || 0).toLocaleString("ru-RU")} ₽</span>}
+                          {course.paid && course.price ? (
+                            <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>{course.price.toLocaleString("ru-RU")} ₽</span>
+                          ) : course.paid ? (
+                            <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>Платный</span>
+                          ) : null}
                         </div>
                       </div>
                     </div>
 
-                    {/* Управление курсом */}
-                    <div className="grid grid-cols-2 gap-2 mb-3">
-                      <button onClick={() => setView("constructor")} className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium" style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', color: '#818cf8' }}>
+                    {/* Кнопка публикации в общий поток */}
+                    <button
+                      onClick={() => {
+                        setConstructorCourses(prev => prev.map(c => c.id === course.id ? { ...c, published: !c.published } : c));
+                        showToast(course.published ? "Курс снят с публикации" : "✅ Курс опубликован — виден ученикам в общем потоке и по школам");
+                      }}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all"
+                      style={{
+                        background: course.published ? 'rgba(245,158,11,0.12)' : 'linear-gradient(135deg,#6366f1,#4f46e5)',
+                        border: course.published ? '1px solid rgba(245,158,11,0.35)' : 'none',
+                        color: course.published ? '#f59e0b' : 'white',
+                      }}
+                    >
+                      <Icon name={course.published ? "EyeOff" : "Eye"} size={16} color={course.published ? '#f59e0b' : 'white'} />
+                      {course.published ? "Снять с публикации" : "Опубликовать — видно ученикам и в общем потоке"}
+                    </button>
+
+                    {/* Строка: Изменить / Сделать платным / Удалить */}
+                    <div className="grid grid-cols-3 gap-2">
+                      <button onClick={() => { setSelectedCourseId(course.id); setView("constructor"); }} className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium" style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', color: '#818cf8' }}>
                         <Icon name="Pencil" size={13} color="#818cf8" />Изменить
                       </button>
-                      <button onClick={() => setConstructorCourses(prev => prev.map(c => c.id === course.id ? { ...c, published: !c.published } : c))} className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium" style={{ background: course.published ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.12)', border: `1px solid ${course.published ? 'rgba(245,158,11,0.3)' : 'rgba(16,185,129,0.3)'}`, color: course.published ? '#f59e0b' : '#10b981' }}>
-                        <Icon name={course.published ? "EyeOff" : "Eye"} size={13} color={course.published ? '#f59e0b' : '#10b981'} />{course.published ? "Скрыть" : "Опубликовать"}
+                      <button
+                        onClick={() => {
+                          if (course.paid) {
+                            setConstructorCourses(prev => prev.map(c => c.id === course.id ? { ...c, paid: false, price: 0 } : c));
+                            setPricingCourseId(null);
+                          } else {
+                            setPricingCourseId(course.id);
+                            setPriceInput(course.price ? String(course.price) : "");
+                          }
+                        }}
+                        className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium"
+                        style={{ background: course.paid ? 'rgba(245,158,11,0.12)' : 'rgba(255,255,255,0.05)', border: `1px solid ${course.paid ? 'rgba(245,158,11,0.35)' : 'rgba(255,255,255,0.1)'}`, color: course.paid ? '#f59e0b' : 'rgba(255,255,255,0.6)' }}
+                      >
+                        <Icon name="Wallet" size={13} color={course.paid ? '#f59e0b' : 'rgba(255,255,255,0.5)'} />
+                        {course.paid ? "Бесплатно" : "Платный"}
                       </button>
-                      <button onClick={() => setConstructorCourses(prev => prev.map(c => c.id === course.id ? { ...c, paid: !c.paid } : c))} className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)' }}>
-                        <Icon name="Wallet" size={13} color="rgba(255,255,255,0.5)" />{course.paid ? "Сделать бесплатным" : "Сделать платным"}
-                      </button>
-                      <button onClick={() => { if (window.confirm?.("Удалить курс?")) setConstructorCourses(prev => prev.filter(c => c.id !== course.id)); }} className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444' }}>
+                      <button onClick={() => { if (window.confirm?.("Удалить курс?")) setConstructorCourses(prev => prev.filter(c => c.id !== course.id)); }} className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444' }}>
                         <Icon name="Trash2" size={13} color="#ef4444" />Удалить
                       </button>
                     </div>
+
+                    {/* Ввод цены (при нажатии «Платный») */}
+                    {isPricing && (
+                      <div className="flex gap-2 p-3 rounded-xl" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                        <input
+                          className="input-field flex-1 py-2 text-sm"
+                          type="number"
+                          placeholder="Цена, ₽"
+                          value={priceInput}
+                          onChange={e => setPriceInput(e.target.value)}
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => {
+                            const p = Number(priceInput);
+                            if (p > 0) {
+                              setConstructorCourses(prev => prev.map(c => c.id === course.id ? { ...c, paid: true, price: p } : c));
+                              setPricingCourseId(null);
+                              showToast(`Цена ${p.toLocaleString("ru-RU")} ₽ установлена`);
+                            }
+                          }}
+                          disabled={!Number(priceInput)}
+                          className="px-4 rounded-xl text-sm font-semibold disabled:opacity-40"
+                          style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: 'white' }}
+                        >
+                          Сохранить
+                        </button>
+                      </div>
+                    )}
 
                     {/* Разделы управления */}
                     <div className="grid grid-cols-3 gap-2">
@@ -216,41 +279,18 @@ export default function SchoolsModule({ onBack, embedded }: Props) {
     );
   }
 
-  // ── ДЕТАЛИ КУРСА (ученики / ДЗ / группы и т.д.) ──
+  // ── ДЕТАЛИ КУРСА → открываем SchoolAdmin с нужным табом и курсом ──
   if (view === "courseDetail") {
-    const course = constructorCourses.find(c => c.id === selectedCourseId);
-    const DETAIL_TABS = [
-      { k: "students", label: "Ученики", icon: "Users" },
-      { k: "homework", label: "Проверка ДЗ", icon: "ClipboardCheck" },
-      { k: "groups", label: "Группы", icon: "CalendarDays" },
-      { k: "enroll", label: "Записи", icon: "UserPlus" },
-      { k: "analytics", label: "Аналитика", icon: "BarChart3" },
-      { k: "access", label: "Доступ", icon: "Settings" },
-    ] as const;
+    const tabMap: Record<string, "students" | "homework" | "groups" | "enroll" | "analytics" | "settings"> = {
+      students: "students", homework: "homework", groups: "groups",
+      enroll: "enroll", analytics: "analytics", access: "settings",
+    };
     return (
-      <div className="min-h-screen relative z-10 animate-fade-in">
-        {toast && <Toast msg={toast} />}
-        <ModuleHeader title={course?.title || "Курс"} onBack={() => setView("myCourses")} icon="BookOpen" iconColor="#6366f1" subtitle="Управление курсом" />
-        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8">
-          {/* Табы */}
-          <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
-            {DETAIL_TABS.map(t => (
-              <button key={t.k} onClick={() => setCourseDetailTab(t.k)} className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all" style={{ background: courseDetailTab === t.k ? 'linear-gradient(135deg,#6366f1,#4f46e5)' : 'rgba(255,255,255,0.06)', border: `1px solid ${courseDetailTab === t.k ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.1)'}`, color: courseDetailTab === t.k ? 'white' : 'rgba(255,255,255,0.5)' }}>
-                <Icon name={t.icon} size={13} color={courseDetailTab === t.k ? 'white' : 'rgba(255,255,255,0.5)'} />{t.label}
-              </button>
-            ))}
-          </div>
-          {/* Для управления отправляем в SchoolAdmin */}
-          <div className="glass rounded-2xl p-5 text-center space-y-3">
-            <Icon name={DETAIL_TABS.find(t => t.k === courseDetailTab)?.icon || "Settings"} size={28} color="#6366f1" className="mx-auto" />
-            <p className="text-sm font-semibold text-white">{DETAIL_TABS.find(t => t.k === courseDetailTab)?.label}</p>
-            <p className="text-xs text-white/40">Полное управление доступно в конструкторе</p>
-            <button onClick={() => setView("constructor")} className="btn-primary flex items-center justify-center gap-2 mx-auto px-6" style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}>
-              <Icon name="LayoutGrid" size={16} />Открыть конструктор
-            </button>
-          </div>
-        </div>
-      </div>
+      <SchoolAdmin
+        onBack={() => setView("myCourses")}
+        initialTab={tabMap[courseDetailTab] || "students"}
+        initialCourseId={selectedCourseId ?? undefined}
+      />
     );
   }
 
@@ -384,7 +424,7 @@ export default function SchoolsModule({ onBack, embedded }: Props) {
             <button onClick={onBack} className="p-2 rounded-xl hover:bg-white/10 transition-colors flex-shrink-0"><Icon name="ArrowLeft" size={20} color="white" /></button>
             <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.3)' }}><Icon name="School" size={16} color="#6366f1" /></div>
             <div className="flex-1"><h1 className="text-base font-bold text-white">{embedded ? "Курсы по школам" : "Школы"}</h1><p className="text-xs text-white/40">{filtered.length} организаций</p></div>
-            {isSchool && <button onClick={() => setView("cabinet")} className="p-2 rounded-xl hover:bg-white/10 transition-colors"><Icon name="LayoutDashboard" size={18} color="#6366f1" /></button>}
+            {isSchool && !embedded && <button onClick={() => setView("cabinet")} className="p-2 rounded-xl hover:bg-white/10 transition-colors"><Icon name="LayoutDashboard" size={18} color="#6366f1" /></button>}
           </div>
           {!isSchool && (
             myReq && myReq.status === "pending" ? (

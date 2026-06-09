@@ -3,7 +3,6 @@ import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
 import { usePersistentState } from "@/hooks/usePersistentState";
-import SchoolAdmin from "./learning/SchoolAdmin";
 import SchoolsModule from "./SchoolsModule";
 
 interface Props { onBack: () => void; }
@@ -48,8 +47,8 @@ export default function LearningModule({ onBack }: Props) {
   const [enrollPhone, setEnrollPhone] = useState("");
   const [, setAllEnrollments] = usePersistentState<Enrollment[]>("school_enrollments_all", []);
 
-  // Режим администратора школы (конструктор курсов, ученики, проверка ДЗ, аналитика)
-  if (school) return <SchoolAdmin onBack={() => setSchool(false)} />;
+  // Кабинет школы — открываем SchoolsModule сразу на странице кабинета
+  if (school) return <SchoolsModule onBack={() => setSchool(false)} initialView="cabinet" />;
 
   // Просмотр курсов по школам (раздел «Школы» встроен в «Обучение»)
   if (view === "list" && browseMode === "schools") return <SchoolsModule embedded onBack={() => setBrowseMode("all")} />;

@@ -4,8 +4,6 @@ import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
 import { usePersistentState } from "@/hooks/usePersistentState";
 
-interface Props { onBack: () => void; }
-
 // ── Типы конструктора курсов ──
 type LessonType = "lecture" | "test" | "assignment" | "webinar";
 
@@ -115,10 +113,12 @@ const INITIAL_HOMEWORK: Homework[] = [
 
 type Tab = "constructor" | "students" | "homework" | "groups" | "enroll" | "analytics" | "settings";
 
-export default function SchoolAdmin({ onBack }: Props) {
+interface Props { onBack: () => void; initialTab?: Tab; initialCourseId?: number; }
+
+export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Props) {
   const { users, currentUser } = useApp();
 
-  const [tab, setTab] = useState<Tab>("constructor");
+  const [tab, setTab] = useState<Tab>(initialTab || "constructor");
   const [courses, setCourses] = usePersistentState<Course[]>(`school_courses_${currentUser.id}`, INITIAL_COURSES);
   const [students, setStudents] = usePersistentState<Student[]>(`school_students_${currentUser.id}`, INITIAL_STUDENTS);
   const [homework, setHomework] = usePersistentState<Homework[]>(`school_homework_${currentUser.id}`, INITIAL_HOMEWORK);
@@ -127,7 +127,7 @@ export default function SchoolAdmin({ onBack }: Props) {
   // Записи на курсы — глобальный store (заполняется учениками из раздела «Обучение»)
   const [enrollments] = usePersistentState<Enrollment[]>(`school_enrollments_all`, []);
 
-  const [activeCourseId, setActiveCourseId] = useState<number>(courses[0]?.id || 0);
+  const [activeCourseId, setActiveCourseId] = useState<number>(initialCourseId || courses[0]?.id || 0);
   const [toast, setToast] = useState<string | null>(null);
   const [studentSearch, setStudentSearch] = useState("");
   const [hwFilter, setHwFilter] = useState("");
