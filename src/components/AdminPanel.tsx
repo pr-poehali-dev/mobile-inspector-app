@@ -2,10 +2,22 @@ import { useState, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp, UserRole, PaymentService } from "@/context/AppContext";
+import { usePersistentState } from "@/hooks/usePersistentState";
 
 interface Props { onBack: () => void; }
 
-type Tab = "stats" | "users" | "roles" | "granted" | "categories" | "support" | "requisites" | "content";
+type Tab = "stats" | "users" | "roles" | "granted" | "categories" | "support" | "requisites" | "content" | "manager_appeals" | "accounting" | "payouts";
+
+// Повторяем тип обращения (из SalesModule)
+interface ManagerAppeal {
+  id: number;
+  userId: number;
+  userName: string;
+  amount: number;
+  requisites: string;
+  date: string;
+  status: "Новое" | "В обработке" | "Выплачено";
+}
 
 const ROLE_LABELS: Record<string, { label: string; color: string; icon: string }> = {
   admin: { label: "Администратор", color: "#ef4444", icon: "ShieldCheck" },
@@ -45,6 +57,10 @@ export default function AdminPanel({ onBack }: Props) {
     paymentServices, addPaymentService, updatePaymentService, removePaymentService,
     supportMessages, replySupportMessage, blockContent, unblockContent, isContentBlocked,
   } = useApp();
+
+  // Обращения от менеджеров (тот же ключ что в SalesModule)
+  const [managerAppeals, setManagerAppeals] = usePersistentState<ManagerAppeal[]>("manager_appeals", []);
+  const newAppealsCount = managerAppeals.filter(a => a.status === "Новое").length;
 
   const [tab, setTab] = useState<Tab>("stats");
   const [userSearch, setUserSearch] = useState("");
@@ -94,6 +110,9 @@ export default function AdminPanel({ onBack }: Props) {
     { k: "requisites", label: "Реквизиты", icon: "CreditCard" },
     { k: "content", label: "Контент", icon: "ShieldAlert" },
     { k: "categories", label: "Категории", icon: "Tags" },
+    { k: "manager_appeals", label: "От менеджеров", icon: "MessageCircle", badge: newAppealsCount },
+    { k: "accounting", label: "Бухгалтерия", icon: "BookOpen" },
+    { k: "payouts", label: "Выплаты", icon: "Banknote" },
   ] as const;
 
   return (
@@ -452,6 +471,116 @@ export default function AdminPanel({ onBack }: Props) {
             </div>
           </div>
         )}
+
+        {/* ── ОБРАЩЕНИЯ ОТ МЕНЕДЖЕРОВ ── */}
+        {tab === "manager_appeals" && (
+          <div className="space-y-3 animate-fade-in">
+            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider px-1">Обращения от менеджеров по продажам</p>
+            {managerAppeals.length === 0 && <div className="text-center py-14"><Icon name="MessageCircle" size={32} color="rgba(255,255,255,0.2)" className="mx-auto mb-3" /><p className="text-white/30 text-sm">Нет обращений</p></div>}
+            {managerAppeals.map(a => (
+              <div key={a.id} className="glass rounded-2xl p-4 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-white">{a.userName}</p>
+                    <p className="text-xs text-white/40">{a.date}</p>
+                  </div>
+                  <span className="text-xs px-2 py-0.5 rounded-lg flex-shrink-0" style={{ background: a.status === "Выплачено" ? 'rgba(16,185,129,0.15)' : a.status === "В обработке" ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)', color: a.status === "Выплачено" ? '#10b981' : a.status === "В обработке" ? '#f59e0b' : '#ef4444' }}>{a.status}</span>
+                </div>
+                {a.amount > 0 && <p className="text-sm font-bold text-green-400">{a.amount.toLocaleString("ru-RU")} ₽</p>}
+                <p className="text-xs text-white/60 whitespace-pre-wrap">{a.requisites}</p>
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => setManagerAppeals(prev => prev.map(x => x.id === a.id ? { ...x, status: "В обработке" } : x))} className="flex-1 py-1.5 rounded-lg text-xs font-medium" style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b' }}>В обработке</button>
+                  <button onClick={() => setManagerAppeals(prev => prev.map(x => x.id === a.id ? { ...x, status: "Выплачено" } : x))} className="flex-1 py-1.5 rounded-lg text-xs font-medium" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>Выплачено</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── БУХГАЛТЕРИЯ ── */}
+        {tab === "accounting" && (
+          <div className="space-y-4 animate-fade-in">
+            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider px-1">Бухгалтерия платформы</p>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: "Пользователей всего", value: users.length, icon: "Users", color: "#3b82f6" },
+                { label: "Активных подписок", value: users.filter(u => u.roles.some(r => r !== "user")).length, icon: "TrendingUp", color: "#22c55e" },
+                { label: "Заявок на роли", value: roleRequests.filter(r => r.status === "pending").length, icon: "Clock", color: "#f59e0b" },
+                { label: "Выплачено менеджерам", value: `${managerAppeals.filter(a => a.status === "Выплачено").reduce((s, a) => s + a.amount, 0).toLocaleString("ru-RU")} ₽`, icon: "Banknote", color: "#10b981" },
+              ].map(s => (
+                <div key={s.label} className="glass rounded-2xl p-4">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-2" style={{ background: `${s.color}20` }}><Icon name={s.icon} size={18} color={s.color} /></div>
+                  <div className="text-2xl font-bold text-white">{s.value}</div>
+                  <div className="text-xs text-white/40 mt-0.5">{s.label}</div>
+                </div>
+              ))}
+            </div>
+            <div className="glass rounded-2xl p-4">
+              <p className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3">Реквизиты за оплату ролей</p>
+              {paymentServices.map(s => (
+                <div key={s.id} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                  <span className="text-sm text-white/70">{s.name}</span>
+                  <span className="text-sm font-semibold text-green-400">{s.price.toLocaleString("ru-RU")} ₽</span>
+                </div>
+              ))}
+              {paymentServices.length === 0 && <p className="text-center text-white/30 text-sm py-2">Нет данных</p>}
+            </div>
+            <div className="glass rounded-2xl p-4">
+              <p className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-2">Выплаты менеджерам — статистика</p>
+              <div className="flex justify-between py-2 border-b border-white/5">
+                <span className="text-sm text-white/60">Обращений на вывод</span>
+                <span className="text-sm font-semibold text-white">{managerAppeals.filter(a => a.amount > 0).length}</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-white/5">
+                <span className="text-sm text-white/60">В обработке</span>
+                <span className="text-sm font-semibold text-yellow-400">{managerAppeals.filter(a => a.status === "В обработке").reduce((s, a) => s + a.amount, 0).toLocaleString("ru-RU")} ₽</span>
+              </div>
+              <div className="flex justify-between py-2">
+                <span className="text-sm text-white/60">Выплачено</span>
+                <span className="text-sm font-semibold text-green-400">{managerAppeals.filter(a => a.status === "Выплачено").reduce((s, a) => s + a.amount, 0).toLocaleString("ru-RU")} ₽</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── ВЫПЛАТЫ МЕНЕДЖЕРАМ ── */}
+        {tab === "payouts" && (
+          <div className="space-y-4 animate-fade-in">
+            <div className="flex items-center justify-between px-1">
+              <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">Реестр выплат менеджерам</p>
+              <button onClick={() => {
+                const rows = managerAppeals.filter(a => a.amount > 0).map(a =>
+                  `${a.date}\t${a.userName}\t${a.amount} ₽\t${a.requisites}\t${a.status}`
+                ).join("\n");
+                const header = "Дата\tМенеджер\tСумма\tРеквизиты\tСтатус\n";
+                const blob = new Blob(["\uFEFF" + header + rows], { type: "text/csv;charset=utf-8;" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url; a.download = `Выплаты_${new Date().toLocaleDateString("ru-RU")}.csv`; a.click();
+                URL.revokeObjectURL(url);
+              }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium" style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981' }}>
+                <Icon name="Download" size={14} color="#10b981" />Скачать CSV
+              </button>
+            </div>
+            {managerAppeals.filter(a => a.amount > 0).length === 0 && <div className="text-center py-14"><Icon name="Banknote" size={32} color="rgba(255,255,255,0.2)" className="mx-auto mb-3" /><p className="text-white/30 text-sm">Запросов на вывод ещё не было</p></div>}
+            {managerAppeals.filter(a => a.amount > 0).map(a => (
+              <div key={a.id} className="glass rounded-2xl p-4">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div>
+                    <p className="text-sm font-semibold text-white">{a.userName}</p>
+                    <p className="text-xs text-white/40">{a.date}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-base font-bold text-green-400">{a.amount.toLocaleString("ru-RU")} ₽</p>
+                    <span className="text-xs px-2 py-0.5 rounded-lg" style={{ background: a.status === "Выплачено" ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)', color: a.status === "Выплачено" ? '#10b981' : '#f59e0b' }}>{a.status}</span>
+                  </div>
+                </div>
+                <div className="rounded-xl p-3 text-xs text-white/60 whitespace-pre-wrap" style={{ background: 'rgba(255,255,255,0.04)' }}>{a.requisites}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
       </div>
     </div>
   );
