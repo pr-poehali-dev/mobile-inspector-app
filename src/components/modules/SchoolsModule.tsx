@@ -5,6 +5,19 @@ import { useApp } from "@/context/AppContext";
 import { usePersistentState } from "@/hooks/usePersistentState";
 import SchoolAdmin from "./learning/SchoolAdmin";
 
+// Типы из SchoolAdmin (дублируем минимум для чтения)
+interface ConstructorCourse {
+  id: number;
+  title: string;
+  modules: { id: number; title: string; lessons: { id: number; title: string; type: string }[] }[];
+  published: boolean;
+  documentName: string;
+  documentHow: string;
+  certSample: string;
+  paid?: boolean;
+  price?: number;
+}
+
 interface Props { onBack: () => void; embedded?: boolean; }
 
 // ── Структура данных школы (готова к переносу на сервер) ──
@@ -29,7 +42,7 @@ const SEED_SCHOOLS: School[] = [
   { id: 7002, ownerId: -1, name: "Академия Профразвития", banner: "", city: "Санкт-Петербург", address: "Лиговский пр., 30", about: "Повышение квалификации и переподготовка кадров.", license: "Лицензия №78Л03-00567", contacts: "+7 (812) 600-20-30", visible: true, courses: [{ id: 1, title: "Управление проектами", hours: "72 ч", audience: "Менеджеры" }] },
 ];
 
-type ViewMode = "list" | "profile" | "request" | "cabinet" | "constructor" | "editCourse";
+type ViewMode = "list" | "profile" | "request" | "cabinet" | "constructor" | "editCourse" | "myCourses" | "courseDetail";
 
 export default function SchoolsModule({ onBack, embedded }: Props) {
   const { currentUser, hasRole, isAdmin, addRoleRequest, roleRequests } = useApp();
@@ -48,6 +61,11 @@ export default function SchoolsModule({ onBack, embedded }: Props) {
   const [enrollCourse, setEnrollCourse] = useState<SchoolCourse | null>(null);
   const [enrollFio, setEnrollFio] = useState("");
   const [enrollPhone, setEnrollPhone] = useState("");
+
+  // Курсы из конструктора SchoolAdmin (тот же ключ хранилища)
+  const [constructorCourses, setConstructorCourses] = usePersistentState<ConstructorCourse[]>(`school_courses_${currentUser.id}`, []);
+  const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
+  const [courseDetailTab, setCourseDetailTab] = useState<"students" | "homework" | "groups" | "enroll" | "analytics" | "access">("students");
 
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
 
@@ -115,6 +133,127 @@ export default function SchoolsModule({ onBack, embedded }: Props) {
     );
   }
 
+  // ── МОИ КУРСЫ (из конструктора) ──
+  if (view === "myCourses") {
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        {toast && <Toast msg={toast} />}
+        <ModuleHeader title="Мои курсы" onBack={() => setView("cabinet")} icon="GraduationCap" iconColor="#6366f1" subtitle={`${constructorCourses.length} курсов`} />
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
+          {constructorCourses.length === 0 ? (
+            <div className="text-center py-16">
+              <Icon name="GraduationCap" size={36} color="rgba(255,255,255,0.2)" className="mx-auto mb-3" />
+              <p className="text-white/40 text-sm mb-4">Курсы ещё не созданы</p>
+              <button onClick={() => setView("constructor")} className="btn-primary flex items-center justify-center gap-2 mx-auto px-6" style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}>
+                <Icon name="Plus" size={16} />Создать первый курс
+              </button>
+            </div>
+          ) : (
+            constructorCourses.map((course, i) => {
+              const lessonsTotal = course.modules.reduce((s, m) => s + m.lessons.length, 0);
+              return (
+                <div key={course.id} className="glass rounded-2xl overflow-hidden animate-fade-up opacity-0" style={{ animationDelay: `${i * 0.06}s`, animationFillMode: 'forwards' }}>
+                  {/* Шапка карточки */}
+                  <div className="p-4">
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(99,102,241,0.2)' }}>
+                        <Icon name="BookOpen" size={20} color="#6366f1" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white leading-snug">{course.title || "Без названия"}</p>
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <span className="text-xs text-white/40">{course.modules.length} модулей · {lessonsTotal} уроков</span>
+                          <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: course.published ? 'rgba(16,185,129,0.15)' : 'rgba(148,163,184,0.15)', color: course.published ? '#10b981' : '#94a3b8' }}>
+                            {course.published ? "Опубликован" : "Черновик"}
+                          </span>
+                          {course.paid && <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>{(course.price || 0).toLocaleString("ru-RU")} ₽</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Управление курсом */}
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      <button onClick={() => setView("constructor")} className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium" style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', color: '#818cf8' }}>
+                        <Icon name="Pencil" size={13} color="#818cf8" />Изменить
+                      </button>
+                      <button onClick={() => setConstructorCourses(prev => prev.map(c => c.id === course.id ? { ...c, published: !c.published } : c))} className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium" style={{ background: course.published ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.12)', border: `1px solid ${course.published ? 'rgba(245,158,11,0.3)' : 'rgba(16,185,129,0.3)'}`, color: course.published ? '#f59e0b' : '#10b981' }}>
+                        <Icon name={course.published ? "EyeOff" : "Eye"} size={13} color={course.published ? '#f59e0b' : '#10b981'} />{course.published ? "Скрыть" : "Опубликовать"}
+                      </button>
+                      <button onClick={() => setConstructorCourses(prev => prev.map(c => c.id === course.id ? { ...c, paid: !c.paid } : c))} className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)' }}>
+                        <Icon name="Wallet" size={13} color="rgba(255,255,255,0.5)" />{course.paid ? "Сделать бесплатным" : "Сделать платным"}
+                      </button>
+                      <button onClick={() => { if (window.confirm?.("Удалить курс?")) setConstructorCourses(prev => prev.filter(c => c.id !== course.id)); }} className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444' }}>
+                        <Icon name="Trash2" size={13} color="#ef4444" />Удалить
+                      </button>
+                    </div>
+
+                    {/* Разделы управления */}
+                    <div className="grid grid-cols-3 gap-2">
+                      {([
+                        { tab: "students", icon: "Users", label: "Ученики" },
+                        { tab: "homework", icon: "ClipboardCheck", label: "Проверка ДЗ" },
+                        { tab: "groups", icon: "CalendarDays", label: "Группы" },
+                        { tab: "enroll", icon: "UserPlus", label: "Записи" },
+                        { tab: "analytics", icon: "BarChart3", label: "Аналитика" },
+                        { tab: "access", icon: "Settings", label: "Доступ" },
+                      ] as const).map(item => (
+                        <button key={item.tab} onClick={() => { setSelectedCourseId(course.id); setCourseDetailTab(item.tab); setView("courseDetail"); }} className="flex flex-col items-center gap-1.5 py-2.5 px-2 rounded-xl text-xs font-medium transition-all hover:bg-white/10" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}>
+                          <Icon name={item.icon} size={16} color="rgba(255,255,255,0.5)" />
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+          <button onClick={() => setView("constructor")} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-white" style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}>
+            <Icon name="Plus" size={18} />Создать новый курс в конструкторе
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── ДЕТАЛИ КУРСА (ученики / ДЗ / группы и т.д.) ──
+  if (view === "courseDetail") {
+    const course = constructorCourses.find(c => c.id === selectedCourseId);
+    const DETAIL_TABS = [
+      { k: "students", label: "Ученики", icon: "Users" },
+      { k: "homework", label: "Проверка ДЗ", icon: "ClipboardCheck" },
+      { k: "groups", label: "Группы", icon: "CalendarDays" },
+      { k: "enroll", label: "Записи", icon: "UserPlus" },
+      { k: "analytics", label: "Аналитика", icon: "BarChart3" },
+      { k: "access", label: "Доступ", icon: "Settings" },
+    ] as const;
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        {toast && <Toast msg={toast} />}
+        <ModuleHeader title={course?.title || "Курс"} onBack={() => setView("myCourses")} icon="BookOpen" iconColor="#6366f1" subtitle="Управление курсом" />
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8">
+          {/* Табы */}
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
+            {DETAIL_TABS.map(t => (
+              <button key={t.k} onClick={() => setCourseDetailTab(t.k)} className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all" style={{ background: courseDetailTab === t.k ? 'linear-gradient(135deg,#6366f1,#4f46e5)' : 'rgba(255,255,255,0.06)', border: `1px solid ${courseDetailTab === t.k ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.1)'}`, color: courseDetailTab === t.k ? 'white' : 'rgba(255,255,255,0.5)' }}>
+                <Icon name={t.icon} size={13} color={courseDetailTab === t.k ? 'white' : 'rgba(255,255,255,0.5)'} />{t.label}
+              </button>
+            ))}
+          </div>
+          {/* Для управления отправляем в SchoolAdmin */}
+          <div className="glass rounded-2xl p-5 text-center space-y-3">
+            <Icon name={DETAIL_TABS.find(t => t.k === courseDetailTab)?.icon || "Settings"} size={28} color="#6366f1" className="mx-auto" />
+            <p className="text-sm font-semibold text-white">{DETAIL_TABS.find(t => t.k === courseDetailTab)?.label}</p>
+            <p className="text-xs text-white/40">Полное управление доступно в конструкторе</p>
+            <button onClick={() => setView("constructor")} className="btn-primary flex items-center justify-center gap-2 mx-auto px-6" style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}>
+              <Icon name="LayoutGrid" size={16} />Открыть конструктор
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── SCHOOL CABINET ──
   if (view === "cabinet") {
     const me = mySchool || ensureMySchool();
@@ -143,10 +282,21 @@ export default function SchoolsModule({ onBack, embedded }: Props) {
             </button>
           </div>
 
-          {/* Конструктор курсов (полное управление) */}
+          {/* Мои курсы — карточки из конструктора с управлением */}
+          <button onClick={() => setView("myCourses")} className="w-full flex items-center gap-3 p-4 rounded-2xl text-left" style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.35)' }}>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(99,102,241,0.2)' }}><Icon name="GraduationCap" size={20} color="#6366f1" /></div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-white">Мои курсы</p>
+              <p className="text-xs text-white/40">{constructorCourses.length} курсов · ученики, ДЗ, группы, аналитика</p>
+            </div>
+            {constructorCourses.length > 0 && <span className="w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-xs" style={{ background: '#6366f1' }}>{constructorCourses.length}</span>}
+            <Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.3)" />
+          </button>
+
+          {/* Конструктор курсов (создание и редактирование уроков) */}
           <button onClick={() => setView("constructor")} className="w-full flex items-center gap-3 p-4 rounded-2xl text-left" style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)' }}>
             <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(99,102,241,0.15)' }}><Icon name="LayoutGrid" size={20} color="#6366f1" /></div>
-            <div className="flex-1"><p className="text-sm font-semibold text-white">Конструктор курсов</p><p className="text-xs text-white/40">Модули, уроки, ученики, ДЗ, группы, публикация</p></div>
+            <div className="flex-1"><p className="text-sm font-semibold text-white">Конструктор курсов</p><p className="text-xs text-white/40">Создать и редактировать модули, уроки, тесты</p></div>
             <Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.3)" />
           </button>
 
@@ -243,7 +393,7 @@ export default function SchoolsModule({ onBack, embedded }: Props) {
               <button onClick={() => { setRequestPhone(currentUser.phone || ""); setRequestAgreed(false); setView("request"); }} className="w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl text-left" style={{ background: 'rgba(99,102,241,0.1)', border: '1px dashed rgba(99,102,241,0.35)' }}><Icon name="School" size={16} color="#6366f1" /><span className="text-sm font-medium text-white flex-1">Получить роль «Школа» (бесплатно)</span><Icon name="ChevronRight" size={15} color="rgba(99,102,241,0.6)" /></button>
             )
           )}
-          <div className="relative"><Icon name="Search" size={15} color="rgba(255,255,255,0.3)" className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" /><input className="input-field pl-9 py-2.5 text-sm" placeholder="Поиск по названию школы..." value={search} onChange={e => setSearch(e.target.value)} /></div>
+          <div className="relative"><Icon name="Search" size={15} color="rgba(255,255,255,0.3)" className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" /><input className="input-field pl-12 py-2.5 text-sm" placeholder="Поиск по названию школы..." value={search} onChange={e => setSearch(e.target.value)} /></div>
         </div>
       </div>
       <div className="max-w-2xl mx-auto px-4 pt-3 pb-8 space-y-3">

@@ -384,7 +384,7 @@ export default function LearningModule({ onBack }: Props) {
           <button onClick={onBack} className="p-2 rounded-xl hover:bg-white/10 transition-colors flex-shrink-0"><Icon name="ArrowLeft" size={20} color="white" /></button>
           <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.3)' }}><Icon name="GraduationCap" size={16} color="#3b82f6" /></div>
           <div className="flex-1"><h1 className="text-base font-bold text-white">Обучение · Библиотека</h1><p className="text-xs text-white/40">{COURSES.length} курса</p></div>
-          {isAdmin && <button onClick={() => setSchool(true)} className="px-3 h-9 rounded-xl flex items-center gap-1.5" style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}><Icon name="Settings" size={15} color="white" /><span className="text-xs font-semibold text-white">Школа</span></button>}
+          {isSchool && <button onClick={() => setSchool(true)} className="px-3 h-9 rounded-xl flex items-center gap-1.5" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}><Icon name="School" size={15} color="white" /><span className="text-xs font-semibold text-white">Моя школа</span></button>}
         </div>
         {/* Переключатель: общий поток курсов / по школам */}
         <div className="max-w-2xl mx-auto mt-3 flex gap-2 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.05)' }}>
