@@ -383,15 +383,6 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
             <Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.3)" />
           </button>
 
-          {/* Краткий список курсов школы (для витрины) */}
-          <div className="glass rounded-2xl p-4">
-            <div className="flex items-center justify-between mb-3"><p className="text-xs font-semibold text-white/40 uppercase tracking-wider">Курсы для витрины</p><button onClick={() => { setEditingCourse({ id: Date.now(), title: "", hours: "", audience: "" }); setView("editCourse"); }} className="text-xs px-2.5 py-1 rounded-lg flex items-center gap-1" style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}><Icon name="Plus" size={12} color="#818cf8" />Добавить</button></div>
-            <div className="space-y-2">
-              {me.courses.map(c => <div key={c.id} className="flex items-center gap-2 p-2.5 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)' }}><div className="flex-1 min-w-0"><p className="text-sm text-white truncate">{c.title}</p><p className="text-xs text-white/40">{c.hours} · {c.audience}</p></div><button onClick={() => { setEditingCourse(c); setView("editCourse"); }} className="p-1.5 rounded-lg hover:bg-white/10"><Icon name="Pencil" size={13} color="rgba(255,255,255,0.6)" /></button><button onClick={() => updateMine({ courses: me.courses.filter(x => x.id !== c.id) })} className="p-1.5 rounded-lg hover:bg-white/10"><Icon name="Trash2" size={13} color="rgba(239,68,68,0.7)" /></button></div>)}
-              {me.courses.length === 0 && <p className="text-center py-3 text-white/30 text-xs">Курсы не добавлены</p>}
-            </div>
-          </div>
-
           <button onClick={() => { setSelectedId(me.id); setView("profile"); }} className="btn-ghost flex items-center justify-center gap-2 text-sm"><Icon name="Eye" size={16} />Предпросмотр профиля</button>
         </div>
       </div>
