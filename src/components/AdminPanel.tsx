@@ -20,8 +20,9 @@ const ROLE_LABELS: Record<string, { label: string; color: string; icon: string }
 const SECTIONS = [
   { key: "video", label: "Видео", icon: "Play", color: "#ef4444" },
   { key: "news", label: "Новости", icon: "Newspaper", color: "#f59e0b" },
-  { key: "documents", label: "Документы", icon: "FolderOpen", color: "#10b981" },
-  { key: "checklists", label: "Чек-листы", icon: "CheckSquare", color: "#06b6d4" },
+  { key: "documents", label: "Категории документов", icon: "FolderOpen", color: "#10b981" },
+  { key: "doc_types", label: "Типы документов", icon: "Tag", color: "#06b6d4" },
+  { key: "checklists", label: "Чек-листы", icon: "CheckSquare", color: "#8b5cf6" },
   { key: "learning", label: "Обучение", icon: "GraduationCap", color: "#3b82f6" },
 ];
 

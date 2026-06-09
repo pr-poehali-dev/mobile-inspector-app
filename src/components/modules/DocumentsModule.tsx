@@ -3,6 +3,21 @@ import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import AdminBlockButton from "@/components/AdminBlockButton";
 import { useApp } from "@/context/AppContext";
+import { usePersistentState } from "@/hooks/usePersistentState";
+
+// Заявка на покупку документа (ожидает подтверждения продавца)
+interface DocPaymentRequest {
+  id: number;
+  docId: number;
+  docName: string;
+  price: number;
+  buyerId: number;
+  buyerName: string;
+  ownerId: number;
+  receiptImage: string; // base64 чека
+  date: string;
+  status: "pending" | "confirmed" | "rejected";
+}
 
 interface Props { onBack: () => void; }
 
@@ -16,6 +31,7 @@ interface DocItem {
   id: number;
   name: string;
   category: string;
+  docType?: string; // тип документа (например: Входящий, Нормативный...)
   direction: string;
   dept: string;
   date: string;
@@ -85,12 +101,20 @@ export default function DocumentsModule({ onBack }: Props) {
   const [editing, setEditing] = useState<DocItem | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [requisites, setRequisites] = useState({ inn: "", account: "", bank: "", card: "", bic: "", qrUrl: "" });
-  const [addForm, setAddForm] = useState({ name: "", category: (categories.documents || [])[0] || "Договоры", direction: "Внутренний", paid: false, price: "", content: "", files: {} as DocFiles });
+  const [addForm, setAddForm] = useState({ name: "", category: (categories.documents || [])[0] || "Договоры", docType: (categories.doc_types || [])[0] || "Внутренний", direction: "Внутренний", paid: false, price: "", content: "", files: {} as DocFiles });
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [emailModal, setEmailModal] = useState(false);
   const [emailInput, setEmailInput] = useState("");
   const [requestPhone, setRequestPhone] = useState(currentUser.phone || "");
   const [requestAgreed, setRequestAgreed] = useState(false);
+
+  // Система оплаты с чеком — общий список заявок
+  const [paymentRequests, setPaymentRequests] = usePersistentState<DocPaymentRequest[]>("doc_payment_requests", []);
+  // Модалка покупки
+  const [buyModal, setBuyModal] = useState<DocItem | null>(null);
+  const [receiptImage, setReceiptImage] = useState("");
+  const [receiptSent, setReceiptSent] = useState(false);
+  const receiptRef = useRef<HTMLInputElement>(null);
 
   const qrRef = useRef<HTMLInputElement>(null);
   const pdfRef = useRef<HTMLInputElement>(null);
@@ -98,6 +122,19 @@ export default function DocumentsModule({ onBack }: Props) {
   const xlsxRef = useRef<HTMLInputElement>(null);
 
   const isDocumentor = isAdmin || hasRole("documentor");
+
+  // Документ считается оплаченным если: он в глобальном purchasedDocs ИЛИ
+  // есть подтверждённая заявка на покупку для этого пользователя
+  const isDocAccessible = (docId: number) =>
+    isDocPurchased(docId) ||
+    paymentRequests.some(r => r.docId === docId && r.buyerId === currentUser.id && r.status === "confirmed");
+
+  // Ожидающая заявка текущего пользователя по документу
+  const myPendingRequest = (docId: number) =>
+    paymentRequests.find(r => r.docId === docId && r.buyerId === currentUser.id && r.status === "pending");
+
+  // Заявки входящие к документоведу (продавцу)
+  const incomingRequests = paymentRequests.filter(r => r.ownerId === currentUser.id && r.status === "pending");
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
 
   // Заявка и срок подписки документоведа
@@ -152,20 +189,20 @@ export default function DocumentsModule({ onBack }: Props) {
     if (!addForm.name.trim()) return;
     const files = Object.keys(addForm.files).length ? addForm.files : { pdf: `${addForm.name}.pdf` };
     if (editing) {
-      setDocs(prev => prev.map(d => d.id === editing.id ? { ...d, name: addForm.name, category: addForm.category, direction: addForm.direction, paid: addForm.paid, price: addForm.paid ? Number(addForm.price) || 0 : 0, content: addForm.content || d.content, files } : d));
+      setDocs(prev => prev.map(d => d.id === editing.id ? { ...d, name: addForm.name, category: addForm.category, docType: addForm.docType, direction: addForm.direction, paid: addForm.paid, price: addForm.paid ? Number(addForm.price) || 0 : 0, content: addForm.content || d.content, files } : d));
       showToast("✅ Документ обновлён");
     } else {
-      setDocs(prev => [{ id: Date.now(), name: addForm.name, category: addForm.category, direction: addForm.direction, dept: currentUser.name, date: new Date().toLocaleDateString("ru-RU"), size: "—", ownerId: currentUser.id, ownerName: currentUser.name, paid: addForm.paid, price: addForm.paid ? Number(addForm.price) || 0 : 0, content: addForm.content || SAMPLE_TEXT, files }, ...prev]);
+      setDocs(prev => [{ id: Date.now(), name: addForm.name, category: addForm.category, docType: addForm.docType, direction: addForm.direction, dept: currentUser.name, date: new Date().toLocaleDateString("ru-RU"), size: "—", ownerId: currentUser.id, ownerName: currentUser.name, paid: addForm.paid, price: addForm.paid ? Number(addForm.price) || 0 : 0, content: addForm.content || SAMPLE_TEXT, files }, ...prev]);
       bumpStat("documents", 1);
       showToast("✅ Документ опубликован");
     }
-    setAddForm({ name: "", category: (categories.documents || [])[0] || "Договоры", direction: "Внутренний", paid: false, price: "", content: "", files: {} });
+    setAddForm({ name: "", category: (categories.documents || [])[0] || "Договоры", docType: (categories.doc_types || [])[0] || "Внутренний", direction: "Внутренний", paid: false, price: "", content: "", files: {} });
     setEditing(null);
     setView("cabinet");
   };
 
   const deleteDoc = (id: number) => { setDocs(prev => prev.filter(d => d.id !== id)); bumpStat("documents", -1); showToast("🗑️ Удалено"); };
-  const startEdit = (d: DocItem) => { setEditing(d); setAddForm({ name: d.name, category: d.category, direction: d.direction, paid: d.paid, price: String(d.price), content: d.content, files: { ...d.files } }); setView("add"); };
+  const startEdit = (d: DocItem) => { setEditing(d); setAddForm({ name: d.name, category: d.category, docType: d.docType || (categories.doc_types || [])[0] || "Внутренний", direction: d.direction, paid: d.paid, price: String(d.price), content: d.content, files: { ...d.files } }); setView("add"); };
 
   const ownerRequisites = (ownerId: number) => {
     // В демо реквизиты хранятся локально только у текущего пользователя; для остальных — заглушка владельца
@@ -324,6 +361,49 @@ export default function DocumentsModule({ onBack }: Props) {
         <button onClick={() => setView("requisites")} className="w-full flex items-center gap-3 p-4 rounded-2xl text-left" style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)' }}>
           <Icon name="CreditCard" size={18} color="#10b981" /><span className="text-sm font-medium text-white flex-1">Реквизиты для оплаты</span><Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.3)" />
         </button>
+
+        {/* ── ВХОДЯЩИЕ ЗАЯВКИ НА ПОКУПКУ ── */}
+        {incomingRequests.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider px-1 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full flex items-center justify-center text-white font-bold" style={{ background: '#f59e0b', fontSize: '10px' }}>{incomingRequests.length}</span>
+              Входящие платежи — ожидают подтверждения
+            </p>
+            {incomingRequests.map(req => (
+              <div key={req.id} className="glass rounded-2xl p-4 space-y-3" style={{ border: '1px solid rgba(245,158,11,0.3)' }}>
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(245,158,11,0.15)' }}><Icon name="FileCheck" size={18} color="#f59e0b" /></div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">{req.docName}</p>
+                    <p className="text-xs text-white/50 mt-0.5">Покупатель: <span className="text-white/70">{req.buyerName}</span> · {req.price.toLocaleString("ru-RU")} ₽</p>
+                    <p className="text-xs text-white/30">{req.date}</p>
+                  </div>
+                </div>
+                {req.receiptImage && (
+                  <div>
+                    <p className="text-xs text-white/40 mb-1.5">Чек об оплате:</p>
+                    <img src={req.receiptImage} alt="Чек" className="w-full max-h-48 object-contain rounded-xl" style={{ background: 'rgba(255,255,255,0.04)' }} />
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <button onClick={() => {
+                    setPaymentRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: "confirmed" } : r));
+                    showToast(`✅ Оплата подтверждена — покупатель получил доступ`);
+                  }} className="flex-1 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5" style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: 'white' }}>
+                    <Icon name="CheckCircle" size={15} />Подтвердить оплату
+                  </button>
+                  <button onClick={() => {
+                    setPaymentRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: "rejected" } : r));
+                    showToast("Заявка отклонена");
+                  }} className="px-4 py-2.5 rounded-xl text-sm font-semibold" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444' }}>
+                    <Icon name="X" size={15} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <button onClick={() => { setEditing(null); setView("add"); }} className="btn-primary flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}><Icon name="Plus" size={18} />Добавить документ</button>
         <p className="text-xs font-semibold text-white/40 uppercase tracking-wider px-1">Управление документами</p>
         {myDocs.map(d => {
@@ -360,6 +440,10 @@ export default function DocumentsModule({ onBack }: Props) {
         <div>
           <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Категория</label>
           <div className="flex flex-wrap gap-2">{(categories.documents || []).map(cat => <button key={cat} onClick={() => setAddForm(f => ({ ...f, category: cat }))} className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all" style={{ background: addForm.category === cat ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.06)', border: `1px solid ${addForm.category === cat ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.1)'}`, color: addForm.category === cat ? '#10b981' : 'rgba(255,255,255,0.5)' }}>{cat}</button>)}</div>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Тип документа</label>
+          <div className="flex flex-wrap gap-2">{(categories.doc_types || ["Входящий", "Исходящий", "Внутренний"]).map(t => <button key={t} onClick={() => setAddForm(f => ({ ...f, docType: t }))} className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all" style={{ background: addForm.docType === t ? 'rgba(6,182,212,0.2)' : 'rgba(255,255,255,0.06)', border: `1px solid ${addForm.docType === t ? 'rgba(6,182,212,0.4)' : 'rgba(255,255,255,0.1)'}`, color: addForm.docType === t ? '#06b6d4' : 'rgba(255,255,255,0.5)' }}>{t}</button>)}</div>
         </div>
         <div><label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Содержимое документа (для просмотра)</label><textarea className="input-field resize-none" rows={5} placeholder="Текст документа для просмотра..." value={addForm.content} onChange={e => setAddForm(f => ({ ...f, content: e.target.value }))} /></div>
 
@@ -404,7 +488,8 @@ export default function DocumentsModule({ onBack }: Props) {
   // ── VIEWER ──
   if (view === "viewer" && selected) {
     const fi = FORMAT_META[primaryFormat(selected.files)];
-    const isPurchased = isDocPurchased(selected.id) || !selected.paid;
+    const isPurchased = isDocAccessible(selected.id) || !selected.paid;
+    const pendingReq = myPendingRequest(selected.id);
     const hasPdf = !!selected.files.pdf;
     const availableFormats = (Object.keys(selected.files) as (keyof DocFiles)[]);
     const ownerReq = ownerRequisites(selected.ownerId);
@@ -416,7 +501,7 @@ export default function DocumentsModule({ onBack }: Props) {
         <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${fi.color}15` }}><Icon name={fi.icon} size={20} color={fi.color} /></div>
-            <div className="flex-1"><div className="flex gap-2"><span className="tag text-xs">{selected.category}</span><span className="tag text-xs" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>{selected.direction}</span></div></div>
+            <div className="flex-1"><div className="flex flex-wrap gap-2"><span className="tag text-xs">{selected.category}</span>{selected.docType && <span className="tag text-xs" style={{ background: 'rgba(6,182,212,0.12)', color: '#06b6d4', border: '1px solid rgba(6,182,212,0.3)' }}>{selected.docType}</span>}<span className="tag text-xs" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>{selected.direction}</span></div></div>
             {selected.paid ? <span className="text-sm font-bold text-green-400">{selected.price} ₽</span> : <span className="text-xs px-2 py-1 rounded-lg" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>Бесплатно</span>}
           </div>
 
@@ -449,19 +534,21 @@ export default function DocumentsModule({ onBack }: Props) {
           <div className="glass rounded-2xl p-4">
             {selected.paid && !isPurchased ? (
               <>
-                <div className="flex items-center gap-2 mb-3"><Icon name="Lock" size={15} color="#f59e0b" /><p className="text-sm text-white/70">Для скачивания и отправки нужна оплата</p></div>
-                {/* Реквизиты документоведа */}
-                <div className="rounded-xl p-3 mb-3" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <p className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">Реквизиты для оплаты</p>
-                  <div className="space-y-1 text-xs text-white/60">
-                    {ownerReq.account && <p>Счёт: <span className="text-white/80">{ownerReq.account}</span></p>}
-                    {ownerReq.bank && <p>Банк: <span className="text-white/80">{ownerReq.bank}</span></p>}
-                    {ownerReq.bic && <p>БИК: <span className="text-white/80">{ownerReq.bic}</span></p>}
-                    {ownerReq.card && <p>Карта: <span className="text-white/80">{ownerReq.card}</span></p>}
+                <div className="flex items-center gap-2 mb-3"><Icon name="Lock" size={15} color="#f59e0b" /><p className="text-sm text-white/70">Для скачивания нужна оплата и подтверждение продавца</p></div>
+                {pendingReq ? (
+                  // Заявка уже отправлена — ждём подтверждения
+                  <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
+                    <Icon name="Clock" size={18} color="#f59e0b" className="flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-white">Чек отправлен — ожидаем подтверждения</p>
+                      <p className="text-xs text-white/50 mt-1">Продавец рассмотрит вашу оплату и откроет доступ к скачиванию. Обычно это занимает до 24 часов.</p>
+                    </div>
                   </div>
-                  {ownerReq.qrUrl && <img src={ownerReq.qrUrl} alt="QR" className="w-24 h-24 object-contain rounded-lg mt-2" />}
-                </div>
-                <button onClick={() => { purchaseDoc(selected.id); showToast(`✅ Оплачено ${selected.price} ₽. Документ всегда будет доступен вам.`); }} className="w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}><Icon name="CreditCard" size={16} />Купить за {selected.price} ₽</button>
+                ) : (
+                  <button onClick={() => { setBuyModal(selected); setReceiptImage(""); setReceiptSent(false); }} className="w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+                    <Icon name="CreditCard" size={16} />Купить за {selected.price} ₽
+                  </button>
+                )}
               </>
             ) : (
               <div className="space-y-2">
@@ -511,6 +598,61 @@ export default function DocumentsModule({ onBack }: Props) {
             </div>
           </div>
         )}
+      {/* ── МОДАЛКА ПОКУПКИ: реквизиты + загрузить чек + сообщить об оплате ── */}
+      {buyModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)' }} onClick={() => setBuyModal(null)}>
+          <div className="w-full max-w-md mx-4 mb-4 sm:mb-0 rounded-3xl p-6 space-y-4 animate-fade-up opacity-0" style={{ background: 'rgba(15,23,42,0.98)', border: '1px solid rgba(255,255,255,0.1)', animationFillMode: 'forwards' }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(16,185,129,0.15)' }}><Icon name="CreditCard" size={20} color="#10b981" /></div>
+              <div><h3 className="text-base font-bold text-white">Оплата документа</h3><p className="text-xs text-white/40 truncate">{buyModal.name}</p></div>
+            </div>
+
+            {/* Реквизиты продавца */}
+            {(() => { const req = ownerRequisites(buyModal.ownerId); return (
+              <div className="rounded-2xl p-4 space-y-2" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <p className="text-xs font-semibold text-white/50 uppercase tracking-wider">Реквизиты продавца</p>
+                <p className="text-2xl font-bold text-green-400">{buyModal.price.toLocaleString("ru-RU")} ₽</p>
+                {req.account && <p className="text-xs text-white/60">Счёт: <span className="text-white/80">{req.account}</span></p>}
+                {req.bank && <p className="text-xs text-white/60">Банк: <span className="text-white/80">{req.bank}</span></p>}
+                {req.bic && <p className="text-xs text-white/60">БИК: <span className="text-white/80">{req.bic}</span></p>}
+                {req.card && <p className="text-xs text-white/60">Карта: <span className="text-white/80">{req.card}</span></p>}
+                {req.qrUrl && <img src={req.qrUrl} alt="QR" className="w-24 h-24 object-contain rounded-xl mt-2" />}
+                {!req.account && !req.card && !req.qrUrl && <p className="text-xs text-white/40 italic">Продавец не указал реквизиты — свяжитесь с ним напрямую.</p>}
+              </div>
+            ); })()}
+
+            {/* Загрузить чек */}
+            <input ref={receiptRef} type="file" accept="image/*,.pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => setReceiptImage(r.result as string); r.readAsDataURL(f); e.target.value = ""; }} />
+            {receiptSent ? (
+              <div className="rounded-xl p-3 flex items-center gap-2" style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)' }}>
+                <Icon name="CheckCircle" size={16} color="#10b981" />
+                <p className="text-sm text-green-400 font-medium">Уведомление отправлено — ожидайте подтверждения продавца</p>
+              </div>
+            ) : (
+              <>
+                <button onClick={() => receiptRef.current?.click()} className="w-full flex items-center gap-3 p-3.5 rounded-xl transition-all" style={{ background: receiptImage ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)', border: receiptImage ? '1px solid rgba(16,185,129,0.4)' : '2px dashed rgba(255,255,255,0.15)' }}>
+                  <Icon name={receiptImage ? "FileCheck" : "Upload"} size={20} color={receiptImage ? "#10b981" : "rgba(255,255,255,0.3)"} />
+                  <span className="text-sm flex-1 text-left" style={{ color: receiptImage ? '#10b981' : 'rgba(255,255,255,0.5)' }}>{receiptImage ? "✓ Чек загружен" : "Загрузить чек об оплате"}</span>
+                  {receiptImage && <button onClick={e => { e.stopPropagation(); setReceiptImage(""); }} className="p-1"><Icon name="X" size={14} color="rgba(255,255,255,0.4)" /></button>}
+                </button>
+                <button
+                  onClick={() => {
+                    if (!receiptImage) { showToast("Сначала загрузите чек об оплате"); return; }
+                    setPaymentRequests(prev => [...prev, { id: Date.now(), docId: buyModal.id, docName: buyModal.name, price: buyModal.price, buyerId: currentUser.id, buyerName: currentUser.name, ownerId: buyModal.ownerId, receiptImage, date: new Date().toLocaleString("ru-RU"), status: "pending" }]);
+                    setReceiptSent(true);
+                    showToast("✅ Уведомление об оплате отправлено продавцу");
+                  }}
+                  className="w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2"
+                  style={{ background: receiptImage ? 'linear-gradient(135deg,#10b981,#059669)' : 'rgba(255,255,255,0.08)', opacity: receiptImage ? 1 : 0.5 }}
+                >
+                  <Icon name="Send" size={16} />Сообщить об оплате
+                </button>
+              </>
+            )}
+            <button onClick={() => setBuyModal(null)} className="btn-ghost w-full text-sm">Закрыть</button>
+          </div>
+        </div>
+      )}
       </div>
     );
   }
@@ -582,7 +724,7 @@ export default function DocumentsModule({ onBack }: Props) {
           )}
           <div className="relative">
             <Icon name="Search" size={15} color="rgba(255,255,255,0.3)" className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input className="input-field pl-9 py-2.5 text-sm" placeholder="Поиск по названию..." value={search} onChange={e => setSearch(e.target.value)} />
+            <input className="input-field pl-12 py-2.5 text-sm" placeholder="Поиск по заголовку, тексту, автору..." value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </div>
       </div>
@@ -609,6 +751,7 @@ export default function DocumentsModule({ onBack }: Props) {
                     </div>
                     <div className="flex gap-2 mt-1.5 items-center flex-wrap">
                       <span className="tag text-xs">{doc.category}</span>
+                      {doc.docType && <span className="text-xs px-2 py-0.5 rounded-lg" style={{ background: 'rgba(6,182,212,0.12)', color: '#06b6d4', border: '1px solid rgba(6,182,212,0.25)' }}>{doc.docType}</span>}
                       {(Object.keys(doc.files) as (keyof DocFiles)[]).map(f => <span key={f} className="text-xs px-1.5 py-0.5 rounded" style={{ background: `${FORMAT_META[f].color}18`, color: FORMAT_META[f].color }}>{FORMAT_META[f].label}</span>)}
                       {doc.paid ? <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>{doc.price} ₽</span> : <span className="text-xs px-2 py-0.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>Бесплатно</span>}
                     </div>
