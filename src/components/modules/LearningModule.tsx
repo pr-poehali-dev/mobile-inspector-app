@@ -4,6 +4,7 @@ import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
 import { usePersistentState } from "@/hooks/usePersistentState";
 import SchoolsModule from "./SchoolsModule";
+import type { PublishedCourse } from "./SchoolsModule";
 
 interface Props { onBack: () => void; }
 
@@ -46,6 +47,28 @@ export default function LearningModule({ onBack }: Props) {
   const [enrollFio, setEnrollFio] = useState("");
   const [enrollPhone, setEnrollPhone] = useState("");
   const [, setAllEnrollments] = usePersistentState<Enrollment[]>("school_enrollments_all", []);
+  const [publishedCourses] = usePersistentState<PublishedCourse[]>("published_courses_all", []);
+
+  // Объединяем статические курсы + опубликованные курсы школ
+  const allCourses = [
+    ...COURSES,
+    ...publishedCourses.map(p => ({
+      id: p.id + 100000,   // смещаем ID чтобы не конфликтовал со статическими
+      title: p.title,
+      lessons: p.lessonsCount,
+      duration: `${p.lessonsCount} уроков`,
+      progress: 0,
+      category: p.paid ? "Платный" : "Бесплатный",
+      cert: p.cert,
+      image: "",
+      hours: `${p.lessonsCount} уроков`,
+      audience: "",
+      description: p.description,
+      school: p.schoolName,
+      price: p.price,
+      paid: p.paid,
+    })),
+  ];
 
   // Кабинет школы — открываем SchoolsModule сразу на странице кабинета
   if (school) return <SchoolsModule onBack={() => setSchool(false)} initialView="cabinet" />;
@@ -382,7 +405,7 @@ export default function LearningModule({ onBack }: Props) {
         <div className="max-w-2xl mx-auto flex items-center gap-2">
           <button onClick={onBack} className="p-2 rounded-xl hover:bg-white/10 transition-colors flex-shrink-0"><Icon name="ArrowLeft" size={20} color="white" /></button>
           <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.3)' }}><Icon name="GraduationCap" size={16} color="#3b82f6" /></div>
-          <div className="flex-1"><h1 className="text-base font-bold text-white">Обучение · Библиотека</h1><p className="text-xs text-white/40">{COURSES.length} курса</p></div>
+          <div className="flex-1"><h1 className="text-base font-bold text-white">Обучение · Библиотека</h1><p className="text-xs text-white/40">{allCourses.length} курсов</p></div>
           {isSchool && <button onClick={() => setSchool(true)} className="px-3 h-9 rounded-xl flex items-center gap-1.5" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}><Icon name="School" size={15} color="white" /><span className="text-xs font-semibold text-white">Моя школа</span></button>}
         </div>
         {/* Переключатель: общий поток курсов / по школам */}
@@ -404,8 +427,8 @@ export default function LearningModule({ onBack }: Props) {
         )}
       </div>
       <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
-        {COURSES.map((course, i) => (
-          <button key={course.id} onClick={() => { setSelectedCourse(course); setView("course"); }} className={`w-full text-left glass rounded-2xl overflow-hidden animate-fade-up opacity-0 hover:border-white/20 transition-all`} style={{ animationDelay: `${0.05 + i * 0.07}s`, animationFillMode: 'forwards' }}>
+        {allCourses.map((course, i) => (
+          <button key={course.id} onClick={() => { setSelectedCourse(course as typeof COURSES[0]); setView("course"); }} className={`w-full text-left glass rounded-2xl overflow-hidden animate-fade-up opacity-0 hover:border-white/20 transition-all`} style={{ animationDelay: `${0.05 + i * 0.07}s`, animationFillMode: 'forwards' }}>
             {/* Изображение курса */}
             <div className="h-28 relative" style={{ background: 'linear-gradient(135deg,#1e3a8a,#3b82f6)' }}>
               {course.image && <img src={course.image} alt="" className="w-full h-full object-cover" loading="lazy" />}
@@ -414,15 +437,14 @@ export default function LearningModule({ onBack }: Props) {
               {course.cert && <span className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}><Icon name="Award" size={16} color="#f59e0b" /></span>}
             </div>
             <div className="p-4">
-              {/* Школа, добавившая курс */}
               <div className="flex items-center gap-1.5 mb-1.5"><Icon name="School" size={12} color="#6366f1" /><span className="text-xs text-indigo-300">{course.school}</span></div>
               <h3 className="text-sm font-semibold text-white mb-1.5">{course.title}</h3>
-              {/* Описание курса */}
               <p className="text-xs text-white/50 mb-2 line-clamp-2">{course.description}</p>
-              {/* Часы обучения и категория слушателей */}
               <div className="flex flex-wrap gap-2 mb-3">
                 <span className="text-xs px-2 py-0.5 rounded-lg flex items-center gap-1" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)' }}><Icon name="Clock" size={11} />{course.hours}</span>
-                <span className="text-xs px-2 py-0.5 rounded-lg flex items-center gap-1" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)' }}><Icon name="Users" size={11} />{course.audience}</span>
+                {(course as { paid?: boolean }).paid && (course as { price?: number }).price ? (
+                  <span className="text-xs px-2 py-0.5 rounded-lg" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>{((course as { price?: number }).price || 0).toLocaleString("ru-RU")} ₽</span>
+                ) : null}
               </div>
               <div className="h-1.5 bg-white/10 rounded-full overflow-hidden mb-2">
                 <div className="h-full rounded-full" style={{ width: `${course.progress}%`, background: course.progress === 100 ? 'linear-gradient(90deg, #10b981, #059669)' : 'linear-gradient(90deg, #3b82f6, #8b5cf6)' }} />

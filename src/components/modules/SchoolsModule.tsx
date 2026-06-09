@@ -18,6 +18,20 @@ interface ConstructorCourse {
   price?: number;
 }
 
+// Опубликованный курс в общем потоке (читается LearningModule и витриной школы)
+export interface PublishedCourse {
+  id: number;           // course.id из конструктора
+  ownerId: number;      // userId школы
+  schoolName: string;   // название школы
+  title: string;
+  description: string;
+  lessonsCount: number;
+  modulesCount: number;
+  paid: boolean;
+  price: number;
+  cert: boolean;
+}
+
 // ── Структура данных школы (готова к переносу на сервер) ──
 interface SchoolCourse { id: number; title: string; hours: string; audience: string; description?: string; }
 interface Enrollment { id: number; courseId: number; courseTitle: string; fio: string; phone: string; date: string; ownerId?: number; schoolName?: string; }
@@ -64,12 +78,39 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
 
   // Курсы из конструктора SchoolAdmin (тот же ключ хранилища)
   const [constructorCourses, setConstructorCourses] = usePersistentState<ConstructorCourse[]>(`school_courses_${currentUser.id}`, []);
+  // Глобальный store опубликованных курсов (читается в LearningModule)
+  const [publishedCourses, setPublishedCourses] = usePersistentState<PublishedCourse[]>("published_courses_all", []);
   const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
   const [courseDetailTab, setCourseDetailTab] = useState<"students" | "homework" | "groups" | "enroll" | "analytics" | "access">("students");
   const [pricingCourseId, setPricingCourseId] = useState<number | null>(null);
   const [priceInput, setPriceInput] = useState("");
 
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
+
+  // Синхронизация опубликованных курсов в глобальный store
+  const syncPublished = (courses: ConstructorCourse[]) => {
+    const schoolName = mySchool?.name || schools.find(s => s.ownerId === currentUser.id)?.name || "Моя школа";
+    setPublishedCourses(prev => {
+      // Убираем все курсы этого owner
+      const others = prev.filter(p => p.ownerId !== currentUser.id);
+      // Добавляем опубликованные
+      const mine: PublishedCourse[] = courses
+        .filter(c => c.published && c.title)
+        .map(c => ({
+          id: c.id,
+          ownerId: currentUser.id,
+          schoolName,
+          title: c.title,
+          description: `${c.modules.length} модулей · ${c.modules.reduce((s, m) => s + m.lessons.length, 0)} уроков`,
+          lessonsCount: c.modules.reduce((s, m) => s + m.lessons.length, 0),
+          modulesCount: c.modules.length,
+          paid: c.paid || false,
+          price: c.price || 0,
+          cert: !!c.documentName,
+        }));
+      return [...others, ...mine];
+    });
+  };
 
   const isSchool = isAdmin || hasRole("school");
   const myReq = roleRequests.filter(r => r.userId === currentUser.id && r.role === "school").slice(-1)[0];
@@ -181,8 +222,10 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
                     {/* Кнопка публикации в общий поток */}
                     <button
                       onClick={() => {
-                        setConstructorCourses(prev => prev.map(c => c.id === course.id ? { ...c, published: !c.published } : c));
-                        showToast(course.published ? "Курс снят с публикации" : "✅ Курс опубликован — виден ученикам в общем потоке и по школам");
+                        const updated = constructorCourses.map(c => c.id === course.id ? { ...c, published: !c.published } : c);
+                        setConstructorCourses(updated);
+                        syncPublished(updated);
+                        showToast(course.published ? "Курс снят с публикации" : "✅ Курс опубликован — виден в библиотеке и на витрине школы");
                       }}
                       className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all"
                       style={{
@@ -370,22 +413,45 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
             {selected.license && <p className="text-xs text-white/50 mt-2 flex items-center gap-1.5"><Icon name="BadgeCheck" size={13} color="#10b981" />{selected.license}</p>}
             {selected.contacts && <p className="text-sm text-white/70 mt-2 flex items-center gap-1.5"><Icon name="Phone" size={13} color="#6366f1" />{selected.contacts}</p>}
           </div>
-          <div>
-            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider px-1 mb-2 flex items-center gap-1.5"><Icon name="GraduationCap" size={13} color="#6366f1" />Курсы школы</p>
-            <div className="space-y-2">
-              {selected.courses.map(c => (
-                <div key={c.id} className="glass rounded-xl p-3">
-                  <p className="text-sm font-medium text-white">{c.title}</p>
-                  <p className="text-xs text-white/40 mt-1">{c.hours} · {c.audience}</p>
-                  {c.description && <p className="text-xs text-white/50 mt-1.5">{c.description}</p>}
-                  <button onClick={() => { setEnrollCourse(c); setEnrollFio(""); setEnrollPhone(currentUser.phone || ""); }} className="mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold text-white" style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}>
-                    <Icon name="UserPlus" size={14} />Записаться на курс
-                  </button>
+          {(() => {
+            // Показываем опубликованные курсы из конструктора + ручные курсы витрины
+            const constructorPublished = publishedCourses.filter(p => p.ownerId === selected.ownerId);
+            const allCourses = constructorPublished.length > 0 ? constructorPublished : null;
+            return (
+              <div>
+                <p className="text-xs font-semibold text-white/40 uppercase tracking-wider px-1 mb-2 flex items-center gap-1.5">
+                  <Icon name="GraduationCap" size={13} color="#6366f1" />Курсы школы
+                </p>
+                <div className="space-y-2">
+                  {allCourses && allCourses.map(c => (
+                    <div key={c.id} className="glass rounded-xl p-3">
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <p className="text-sm font-medium text-white">{c.title}</p>
+                        {c.paid && c.price > 0 && <span className="text-xs px-2 py-0.5 rounded-lg flex-shrink-0" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>{c.price.toLocaleString("ru-RU")} ₽</span>}
+                        {!c.paid && <span className="text-xs px-2 py-0.5 rounded-lg flex-shrink-0" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>Бесплатно</span>}
+                      </div>
+                      <p className="text-xs text-white/40">{c.modulesCount} модулей · {c.lessonsCount} уроков</p>
+                      {c.cert && <p className="text-xs text-yellow-400/70 mt-1 flex items-center gap-1"><Icon name="Award" size={11} color="#f59e0b" />Документ по окончании</p>}
+                      <button onClick={() => { setEnrollCourse({ id: c.id, title: c.title, hours: `${c.lessonsCount} уроков`, audience: "" }); setEnrollFio(""); setEnrollPhone(currentUser.phone || ""); }} className="mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold text-white" style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}>
+                        <Icon name="UserPlus" size={14} />Записаться на курс
+                      </button>
+                    </div>
+                  ))}
+                  {(!allCourses || allCourses.length === 0) && selected.courses.map(c => (
+                    <div key={c.id} className="glass rounded-xl p-3">
+                      <p className="text-sm font-medium text-white">{c.title}</p>
+                      <p className="text-xs text-white/40 mt-1">{c.hours} · {c.audience}</p>
+                      {c.description && <p className="text-xs text-white/50 mt-1.5">{c.description}</p>}
+                      <button onClick={() => { setEnrollCourse(c); setEnrollFio(""); setEnrollPhone(currentUser.phone || ""); }} className="mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold text-white" style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}>
+                        <Icon name="UserPlus" size={14} />Записаться на курс
+                      </button>
+                    </div>
+                  ))}
+                  {(!allCourses || allCourses.length === 0) && selected.courses.length === 0 && <p className="text-center py-4 text-white/30 text-sm">Курсы не добавлены</p>}
                 </div>
-              ))}
-              {selected.courses.length === 0 && <p className="text-center py-4 text-white/30 text-sm">Курсы не добавлены</p>}
-            </div>
-          </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Модалка записи на курс школы */}
