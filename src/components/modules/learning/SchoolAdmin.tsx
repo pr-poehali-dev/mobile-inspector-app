@@ -50,18 +50,20 @@ interface Student {
   avgScore: number;
   status: "not_started" | "dropped" | "completed" | "in_progress";
   groupId?: number | null;
+  courseId?: number;        // к какому курсу привязан ученик
 }
 
 interface Homework {
   id: number;
   studentName: string;
-  courseTitle: string;      // к какому курсу
-  lessonTitle: string;      // к какому уроку
+  courseTitle: string;
+  courseId?: number;        // к какому курсу привязано ДЗ
+  lessonTitle: string;
   text: string;
   files: string[];
   grade: number | null;
   comment: string;
-  date: string;             // дата сдачи
+  date: string;
   status: "pending" | "graded";
 }
 
@@ -127,7 +129,9 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
   // Записи на курсы — глобальный store (заполняется учениками из раздела «Обучение»)
   const [enrollments] = usePersistentState<Enrollment[]>(`school_enrollments_all`, []);
 
-  const [activeCourseId, setActiveCourseId] = useState<number>(initialCourseId || courses[0]?.id || 0);
+  // Если передан initialCourseId — используем его, иначе первый курс
+  const resolvedCourseId = initialCourseId && courses.find(c => c.id === initialCourseId) ? initialCourseId : courses[0]?.id || 0;
+  const [activeCourseId, setActiveCourseId] = useState<number>(resolvedCourseId);
   const [toast, setToast] = useState<string | null>(null);
   const [studentSearch, setStudentSearch] = useState("");
   const [hwFilter, setHwFilter] = useState("");
@@ -168,21 +172,30 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
   // Студенты
   const enrolledNames = new Set(students.map(s => s.email));
   const candidates = users.filter(u => !enrolledNames.has(u.email) && (u.name.toLowerCase().includes(studentSearch.toLowerCase()) || u.email.toLowerCase().includes(studentSearch.toLowerCase())));
-  const addStudentFromUser = (u: typeof users[0]) => { setStudents(prev => [...prev, { id: u.id, name: u.name, email: u.email, role: "student", progress: 0, avgScore: 0, status: "not_started", groupId: null }]); showToast(`${u.name} записан на курс`); };
+  // Данные, отфильтрованные по текущему активному курсу
+  const courseStudents = students.filter(s => !s.courseId || s.courseId === activeCourseId);
+  const courseHomework = homework.filter(h => !h.courseId || h.courseId === activeCourseId);
+  const courseGroups = groups.filter(g => g.courseId === activeCourseId);
+  const courseEnrollments = myEnrollments.filter(e => e.courseId === activeCourseId);
+
+  const addStudentFromUser = (u: typeof users[0]) => {
+    setStudents(prev => [...prev, { id: u.id, name: u.name, email: u.email, role: "student", progress: 0, avgScore: 0, status: "not_started", groupId: null, courseId: activeCourseId }]);
+    showToast(`${u.name} записан на курс`);
+  };
   const toggleCurator = (id: number) => setStudents(prev => prev.map(s => s.id === id ? { ...s, role: s.role === "curator" ? "student" : "curator" } : s));
   const assignGroup = (studentId: number, groupId: number | null) => setStudents(prev => prev.map(s => s.id === studentId ? { ...s, groupId } : s));
 
   const gradeHw = (id: number, grade: number, comment: string) => { setHomework(prev => prev.map(h => h.id === id ? { ...h, grade, comment, status: "graded" } : h)); showToast("Оценка выставлена"); };
 
-  const filteredHw = homework.filter(h => h.studentName.toLowerCase().includes(hwFilter.toLowerCase()) || h.courseTitle.toLowerCase().includes(hwFilter.toLowerCase()));
-  const groupAvg = students.length ? (students.reduce((s, x) => s + x.avgScore, 0) / students.length).toFixed(1) : "0";
+  const filteredHw = courseHomework.filter(h => h.studentName.toLowerCase().includes(hwFilter.toLowerCase()) || h.courseTitle.toLowerCase().includes(hwFilter.toLowerCase()));
+  const groupAvg = courseStudents.length ? (courseStudents.reduce((s, x) => s + x.avgScore, 0) / courseStudents.length).toFixed(1) : "0";
 
   const TABS = [
     { k: "constructor", label: "Конструктор", icon: "LayoutGrid" },
     { k: "students", label: "Ученики", icon: "Users" },
-    { k: "homework", label: "Проверка ДЗ", icon: "ClipboardCheck", badge: homework.filter(h => h.status === "pending").length },
+    { k: "homework", label: "Проверка ДЗ", icon: "ClipboardCheck", badge: courseHomework.filter(h => h.status === "pending").length },
     { k: "groups", label: "Группы", icon: "CalendarDays" },
-    { k: "enroll", label: "Записи", icon: "UserPlus", badge: myEnrollments.length },
+    { k: "enroll", label: "Записи", icon: "UserPlus", badge: courseEnrollments.length },
     { k: "analytics", label: "Аналитика", icon: "BarChart3" },
     { k: "settings", label: "Доступ", icon: "Settings" },
   ] as const;
@@ -289,8 +302,33 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
   return (
     <div className="min-h-screen relative z-10 animate-fade-in">
       {toast && <Toast msg={toast} />}
-      <ModuleHeader title="Школа · Управление" onBack={onBack} icon="GraduationCap" iconColor="#3b82f6" subtitle="Режим администратора" />
-      <div className="max-w-2xl mx-auto px-4 pt-3">
+      <ModuleHeader
+        title={activeCourse?.title || "Школа · Управление"}
+        onBack={onBack}
+        icon="GraduationCap"
+        iconColor="#3b82f6"
+        subtitle="Управление курсом"
+      />
+      <div className="max-w-2xl mx-auto px-4 pt-3 space-y-2">
+        {/* Переключатель курсов — виден на всех вкладках */}
+        {courses.length > 1 && (
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {courses.map(c => (
+              <button
+                key={c.id}
+                onClick={() => setActiveCourseId(c.id)}
+                className="flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium"
+                style={{
+                  background: activeCourseId === c.id ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${activeCourseId === c.id ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.08)'}`,
+                  color: activeCourseId === c.id ? '#a5b4fc' : 'rgba(255,255,255,0.5)',
+                }}
+              >
+                {c.title || "Без названия"}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex gap-2 overflow-x-auto pb-1">
           {TABS.map(t => (
             <button key={t.k} onClick={() => setTab(t.k)} className="relative flex-shrink-0 px-3.5 py-2 rounded-xl text-sm font-medium flex items-center gap-1.5" style={{ background: tab === t.k ? 'linear-gradient(135deg,#3b82f6,#2563eb)' : 'rgba(255,255,255,0.06)', border: `1px solid ${tab === t.k ? 'rgba(59,130,246,0.5)' : 'rgba(255,255,255,0.1)'}`, color: tab === t.k ? 'white' : 'rgba(255,255,255,0.5)' }}>
@@ -303,11 +341,22 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
 
       <div className="max-w-2xl mx-auto px-4 pt-4 pb-8">
         {/* ── КОНСТРУКТОР ── */}
+        {tab === "constructor" && !activeCourse && (
+          <div className="text-center py-16 space-y-4">
+            <Icon name="GraduationCap" size={40} color="rgba(255,255,255,0.2)" className="mx-auto" />
+            <p className="text-white/40">Нет курсов. Создайте первый курс.</p>
+            <button onClick={addCourse} className="btn-primary flex items-center justify-center gap-2 mx-auto px-8" style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}>
+              <Icon name="Plus" size={18} />Создать курс
+            </button>
+          </div>
+        )}
         {tab === "constructor" && activeCourse && (
           <div className="space-y-4">
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {courses.map(c => <button key={c.id} onClick={() => setActiveCourseId(c.id)} className="flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium" style={{ background: activeCourseId === c.id ? 'rgba(59,130,246,0.25)' : 'rgba(255,255,255,0.05)', border: `1px solid ${activeCourseId === c.id ? 'rgba(59,130,246,0.5)' : 'rgba(255,255,255,0.08)'}`, color: activeCourseId === c.id ? '#60a5fa' : 'rgba(255,255,255,0.5)' }}>{c.title || "Без названия"}</button>)}
-              <button onClick={addCourse} className="flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium" style={{ background: 'rgba(255,255,255,0.05)', border: '1px dashed rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.6)' }}>+ Курс</button>
+            {/* Кнопка добавить курс */}
+            <div className="flex justify-end">
+              <button onClick={addCourse} className="flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1" style={{ background: 'rgba(99,102,241,0.12)', border: '1px dashed rgba(99,102,241,0.4)', color: '#818cf8' }}>
+                <Icon name="Plus" size={13} color="#818cf8" />Новый курс
+              </button>
             </div>
 
             {/* Название курса (исправлено: рабочее поле) */}
@@ -368,10 +417,10 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
                 </div>
               )}
             </div>
-            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider px-1">Ученики курса ({students.length})</p>
-            {students.map(s => {
+            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider px-1">Ученики курса «{activeCourse?.title || "—"}» ({courseStudents.length})</p>
+            {courseStudents.map(s => {
               const st = STATUS_META[s.status];
-              const grp = groups.find(g => g.id === s.groupId);
+              const grp = courseGroups.find(g => g.id === s.groupId);
               return (
                 <div key={s.id} className="glass rounded-2xl p-4">
                   <div className="flex items-center gap-3">
@@ -385,7 +434,7 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
                   <div className="flex items-center gap-2 mt-3">
                     <div className="flex-1"><div className="h-1.5 bg-white/10 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{ width: `${s.progress}%`, background: 'linear-gradient(90deg,#3b82f6,#8b5cf6)' }} /></div></div>
                     <span className="text-xs text-white/50">{s.progress}%</span>
-                    {groups.length > 0 && <select value={s.groupId || ""} onChange={e => assignGroup(s.id, e.target.value ? Number(e.target.value) : null)} className="text-xs rounded-lg px-2 py-1" style={{ background: 'rgba(255,255,255,0.06)', color: 'white' }}><option value="" style={{ background: '#1a1a2e' }}>Без группы</option>{groups.map(g => <option key={g.id} value={g.id} style={{ background: '#1a1a2e' }}>{g.name}</option>)}</select>}
+                    {courseGroups.length > 0 && <select value={s.groupId || ""} onChange={e => assignGroup(s.id, e.target.value ? Number(e.target.value) : null)} className="text-xs rounded-lg px-2 py-1" style={{ background: 'rgba(255,255,255,0.06)', color: 'white' }}><option value="" style={{ background: '#1a1a2e' }}>Без группы</option>{courseGroups.map(g => <option key={g.id} value={g.id} style={{ background: '#1a1a2e' }}>{g.name}</option>)}</select>}
                     <button onClick={() => toggleCurator(s.id)} className="text-xs px-2.5 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)' }}>{s.role === "curator" ? "Снять" : "Куратор"}</button>
                   </div>
                 </div>
@@ -411,20 +460,23 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
               <input className="input-field text-sm py-2.5" placeholder="Название группы (напр. ОТ-2026/1)" value={newGroup.name} onChange={e => setNewGroup(g => ({ ...g, name: e.target.value }))} />
               <div className="flex gap-2">
                 <input className="input-field text-sm py-2.5 flex-1" type="date" value={newGroup.startDate} onChange={e => setNewGroup(g => ({ ...g, startDate: e.target.value }))} />
-                <select className="input-field text-sm py-2.5 flex-1" value={newGroup.courseId || ""} onChange={e => setNewGroup(g => ({ ...g, courseId: Number(e.target.value) }))} style={{ background: 'rgba(255,255,255,0.06)' }}><option value="" style={{ background: '#1a1a2e' }}>Курс</option>{courses.map(c => <option key={c.id} value={c.id} style={{ background: '#1a1a2e' }}>{c.title || "Без названия"}</option>)}</select>
+                <div className="flex-1 px-3 py-2.5 rounded-xl text-sm text-white/60 truncate" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  {activeCourse?.title || "Выберите курс"}
+                </div>
               </div>
-              <button onClick={() => { if (newGroup.name && newGroup.courseId) { setGroups(prev => [...prev, { id: Date.now(), courseId: newGroup.courseId, name: newGroup.name, startDate: newGroup.startDate || "—" }]); setNewGroup({ name: "", startDate: "", courseId: 0 }); showToast("Группа создана"); } }} className="btn-primary text-sm flex items-center justify-center gap-2"><Icon name="Plus" size={16} />Создать группу</button>
+              <button onClick={() => { if (newGroup.name) { setGroups(prev => [...prev, { id: Date.now(), courseId: activeCourseId, name: newGroup.name, startDate: newGroup.startDate || "—" }]); setNewGroup({ name: "", startDate: "", courseId: 0 }); showToast("Группа создана"); } }} className="btn-primary text-sm flex items-center justify-center gap-2"><Icon name="Plus" size={16} />Создать группу</button>
             </div>
 
-            {groups.map(g => <div key={g.id} className="glass rounded-2xl p-3 flex items-center gap-3"><Icon name="Users" size={16} color="#3b82f6" /><div className="flex-1"><p className="text-sm text-white">{g.name}</p><p className="text-xs text-white/40">Начало: {g.startDate} · {courses.find(c => c.id === g.courseId)?.title || "—"}</p></div><button onClick={() => setGroups(prev => prev.filter(x => x.id !== g.id))} className="p-1.5 rounded-lg hover:bg-white/10"><Icon name="Trash2" size={13} color="rgba(239,68,68,0.7)" /></button></div>)}
+            {courseGroups.length === 0 && <p className="text-center text-white/30 text-sm py-4">Нет групп для этого курса</p>}
+            {courseGroups.map(g => <div key={g.id} className="glass rounded-2xl p-3 flex items-center gap-3"><Icon name="Users" size={16} color="#3b82f6" /><div className="flex-1"><p className="text-sm text-white">{g.name}</p><p className="text-xs text-white/40">Начало: {g.startDate} · {activeCourse?.title || "—"}</p></div><button onClick={() => setGroups(prev => prev.filter(x => x.id !== g.id))} className="p-1.5 rounded-lg hover:bg-white/10"><Icon name="Trash2" size={13} color="rgba(239,68,68,0.7)" /></button></div>)}
 
             {/* Планирование занятия */}
             <div className="glass rounded-2xl p-4 space-y-3">
               <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">Запланировать занятие</p>
-              <select className="input-field text-sm py-2.5" value={newPlan.groupId || ""} onChange={e => setNewPlan(p => ({ ...p, groupId: Number(e.target.value) }))} style={{ background: 'rgba(255,255,255,0.06)' }}><option value="" style={{ background: '#1a1a2e' }}>Выберите группу</option>{groups.map(g => <option key={g.id} value={g.id} style={{ background: '#1a1a2e' }}>{g.name}</option>)}</select>
+              <select className="input-field text-sm py-2.5" value={newPlan.groupId || ""} onChange={e => setNewPlan(p => ({ ...p, groupId: Number(e.target.value) }))} style={{ background: 'rgba(255,255,255,0.06)' }}><option value="" style={{ background: '#1a1a2e' }}>Выберите группу</option>{courseGroups.map(g => <option key={g.id} value={g.id} style={{ background: '#1a1a2e' }}>{g.name}</option>)}</select>
               <input className="input-field text-sm py-2.5" placeholder="Название занятия" value={newPlan.title} onChange={e => setNewPlan(p => ({ ...p, title: e.target.value }))} />
               <div className="flex gap-2"><input className="input-field text-sm py-2.5 flex-1" type="date" value={newPlan.date} onChange={e => setNewPlan(p => ({ ...p, date: e.target.value }))} /><input className="input-field text-sm py-2.5 flex-1" type="time" value={newPlan.time} onChange={e => setNewPlan(p => ({ ...p, time: e.target.value }))} /></div>
-              <button onClick={() => { const g = groups.find(x => x.id === newPlan.groupId); if (g && newPlan.title && newPlan.date) { setPlans(prev => [...prev, { id: Date.now(), groupId: g.id, courseTitle: courses.find(c => c.id === g.courseId)?.title || "—", title: newPlan.title, date: newPlan.date, time: newPlan.time }]); setNewPlan({ groupId: 0, title: "", date: "", time: "" }); showToast("Занятие запланировано"); } }} className="btn-primary text-sm flex items-center justify-center gap-2"><Icon name="CalendarPlus" size={16} />Добавить в календарь</button>
+              <button onClick={() => { const g = courseGroups.find(x => x.id === newPlan.groupId); if (g && newPlan.title && newPlan.date) { setPlans(prev => [...prev, { id: Date.now(), groupId: g.id, courseTitle: activeCourse?.title || "—", title: newPlan.title, date: newPlan.date, time: newPlan.time }]); setNewPlan({ groupId: 0, title: "", date: "", time: "" }); showToast("Занятие запланировано"); } }} className="btn-primary text-sm flex items-center justify-center gap-2"><Icon name="CalendarPlus" size={16} />Добавить в календарь</button>
             </div>
 
             {/* Календарь */}
@@ -441,9 +493,9 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
         {/* ── ЗАПИСИ НА КУРС ── */}
         {tab === "enroll" && (
           <div className="space-y-3">
-            <p className="text-xs text-white/40 px-1">Записи поступают от пользователей через раздел «Обучение» по опубликованным курсам.</p>
-            {myEnrollments.length === 0 && <div className="text-center py-10 text-white/30 text-sm">Пока нет записей на курсы</div>}
-            {myEnrollments.map(en => (
+            <p className="text-xs text-white/40 px-1">Записи на курс «{activeCourse?.title || "—"}» поступают от пользователей через раздел «Обучение».</p>
+            {courseEnrollments.length === 0 && <div className="text-center py-10 text-white/30 text-sm">Пока нет записей на этот курс</div>}
+            {courseEnrollments.map(en => (
               <div key={en.id} className="glass rounded-2xl p-4">
                 <div className="flex items-center justify-between mb-1"><p className="text-sm font-semibold text-white">{en.fio}</p><span className="text-xs text-white/40">{en.date}</span></div>
                 <p className="text-xs text-white/50 flex items-center gap-1"><Icon name="Phone" size={11} />{en.phone}</p>
@@ -456,14 +508,18 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
         {/* ── АНАЛИТИКА ── */}
         {tab === "analytics" && (
           <div className="space-y-4">
+            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider px-1">Аналитика курса «{activeCourse?.title || "—"}»</p>
             <div className="grid grid-cols-2 gap-2">
-              <div className="glass rounded-2xl p-4 text-center"><div className="text-2xl font-bold text-white">{groupAvg}</div><div className="text-xs text-white/40">Средний балл группы</div></div>
-              <div className="glass rounded-2xl p-4 text-center"><div className="text-2xl font-bold text-green-400">{students.filter(s => s.status === "completed").length}/{students.length}</div><div className="text-xs text-white/40">Завершили курс</div></div>
+              <div className="glass rounded-2xl p-4 text-center"><div className="text-2xl font-bold text-white">{groupAvg}</div><div className="text-xs text-white/40">Средний балл</div></div>
+              <div className="glass rounded-2xl p-4 text-center"><div className="text-2xl font-bold text-green-400">{courseStudents.filter(s => s.status === "completed").length}/{courseStudents.length}</div><div className="text-xs text-white/40">Завершили</div></div>
+              <div className="glass rounded-2xl p-4 text-center"><div className="text-2xl font-bold text-blue-400">{courseEnrollments.length}</div><div className="text-xs text-white/40">Записей</div></div>
+              <div className="glass rounded-2xl p-4 text-center"><div className="text-2xl font-bold text-violet-400">{courseGroups.length}</div><div className="text-xs text-white/40">Групп</div></div>
             </div>
             <div className="glass rounded-2xl p-4">
               <p className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3">Прогресс студентов</p>
+              {courseStudents.length === 0 && <p className="text-center text-white/30 text-sm py-4">Нет учеников на этом курсе</p>}
               {(["not_started", "dropped", "in_progress", "completed"] as Student["status"][]).map(st => {
-                const arr = students.filter(s => s.status === st); const meta = STATUS_META[st]; const pct = students.length ? Math.round(arr.length / students.length * 100) : 0;
+                const arr = courseStudents.filter(s => s.status === st); const meta = STATUS_META[st]; const pct = courseStudents.length ? Math.round(arr.length / courseStudents.length * 100) : 0;
                 return (<div key={st} className="mb-3 last:mb-0"><div className="flex items-center justify-between mb-1"><span className="text-sm text-white/70">{meta.label}</span><span className="text-sm font-semibold" style={{ color: meta.color }}>{arr.length}</span></div><div className="h-1.5 bg-white/10 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{ width: `${pct}%`, background: meta.color }} /></div></div>);
               })}
             </div>
