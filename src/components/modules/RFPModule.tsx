@@ -34,6 +34,7 @@ interface RFP {
   status: Status;
   proposals: number;
   ownerId: number;
+  contactPhone?: string; // телефон для обратной связи — виден только победителю
 }
 
 interface Supplier {
@@ -109,7 +110,8 @@ export default function RFPModule({ onBack }: Props) {
   const [interestNotices, setInterestNotices] = usePersistentState<InterestNotice[]>("rfp_interests", []);
   const [chatPeer, setChatPeer] = useState<{ rfpId: number; supplierId: number; company: string } | null>(null);
   const [chatInput, setChatInput] = useState("");
-  const [form, setForm] = useState({ title: "", desc: "", deadline: "", category: "", location: "", workTerm: "" });
+  const [form, setForm] = useState({ title: "", desc: "", deadline: "", category: "", location: "", workTerm: "", contactPhone: "" });
+  const [rfpSearch, setRfpSearch] = useState("");
   const [rfpList, setRfpList] = useState<RFP[]>(INITIAL_RFPS);
   const [suppliers, setSuppliers] = useState<Supplier[]>(INITIAL_SUPPLIERS);
   const [proposals, setProposals] = useState<Proposal[]>(INITIAL_PROPOSALS);
@@ -118,6 +120,8 @@ export default function RFPModule({ onBack }: Props) {
   const [uploadPrice, setUploadPrice] = useState("");
   const [uploadDelivery, setUploadDelivery] = useState("");
   const [uploadFile, setUploadFile] = useState("");
+  // Модалка «Связаться с заказчиком» при нажатии на карточку победителя
+  const [winnerContactModal, setWinnerContactModal] = useState<InterestNotice | null>(null);
   const [requestPhone, setRequestPhone] = useState(currentUser.phone || "");
   const [requestAgreed, setRequestAgreed] = useState(false);
   const [supplierForm, setSupplierForm] = useState<Supplier | null>(null);
@@ -145,8 +149,20 @@ export default function RFPModule({ onBack }: Props) {
   // Уведомления о заинтересованности, адресованные текущему поставщику (его supplierId === currentUser.id)
   const myInterestNotices = interestNotices.filter(n => n.supplierId === currentUser.id);
 
-  // Активные запросы для общего потока: статус Активен + дедлайн не прошёл
-  const visibleRfps = rfpList.filter(r => r.status === "Активен" && parseDeadline(r.deadline) >= Date.now());
+  // Активные запросы с поиском по категории, месту, описанию
+  const visibleRfps = useMemo(() => {
+    let list = rfpList.filter(r => r.status === "Активен" && parseDeadline(r.deadline) >= Date.now());
+    if (rfpSearch.trim()) {
+      const q = rfpSearch.toLowerCase().trim();
+      list = list.filter(r =>
+        r.title.toLowerCase().includes(q) ||
+        r.category.toLowerCase().includes(q) ||
+        r.location.toLowerCase().includes(q) ||
+        r.desc.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [rfpList, rfpSearch]);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -157,20 +173,20 @@ export default function RFPModule({ onBack }: Props) {
   const saveRfp = (status: Status) => {
     if (!form.title) return;
     if (editingRfp) {
-      setRfpList(prev => prev.map(r => r.id === editingRfp.id ? { ...r, title: form.title, desc: form.desc, category: form.category || "Без категории", location: form.location, workTerm: form.workTerm, deadline: form.deadline || r.deadline } : r));
+      setRfpList(prev => prev.map(r => r.id === editingRfp.id ? { ...r, title: form.title, desc: form.desc, category: form.category || "Без категории", location: form.location, workTerm: form.workTerm, deadline: form.deadline || r.deadline, contactPhone: form.contactPhone } : r));
       showToast("✅ Запрос обновлён");
     } else {
-      setRfpList(prev => [{ id: Date.now(), title: form.title, desc: form.desc, category: form.category || "Без категории", location: form.location, workTerm: form.workTerm, deadline: form.deadline || "—", status, proposals: 0, ownerId: currentUser.id }, ...prev]);
+      setRfpList(prev => [{ id: Date.now(), title: form.title, desc: form.desc, category: form.category || "Без категории", location: form.location, workTerm: form.workTerm, deadline: form.deadline || "—", status, proposals: 0, ownerId: currentUser.id, contactPhone: form.contactPhone }, ...prev]);
       showToast(status === "Черновик" ? "💾 Черновик сохранён" : "🚀 Запрос опубликован");
     }
-    setForm({ title: "", desc: "", deadline: "", category: "", location: "", workTerm: "" });
+    setForm({ title: "", desc: "", deadline: "", category: "", location: "", workTerm: "", contactPhone: "" });
     setEditingRfp(null);
     setView("list");
   };
 
   const startEditRfp = (r: RFP) => {
     setEditingRfp(r);
-    setForm({ title: r.title, desc: r.desc, deadline: r.deadline.includes("-") ? r.deadline : "", category: r.category, location: r.location, workTerm: r.workTerm });
+    setForm({ title: r.title, desc: r.desc, deadline: r.deadline.includes("-") ? r.deadline : "", category: r.category, location: r.location, workTerm: r.workTerm, contactPhone: r.contactPhone || "" });
     setView("edit");
   };
   const setRfpStatus = (id: number, status: Status) => { setRfpList(prev => prev.map(r => r.id === id ? { ...r, status } : r)); showToast(status === "Активен" ? "Запрос активен" : "Запрос скрыт"); };
@@ -333,7 +349,13 @@ export default function RFPModule({ onBack }: Props) {
         {toast && <Toast msg={toast} />}
         <ModuleHeader title="Загрузить предложение" onBack={() => setView("list")} subtitle={selectedRfp.title} />
         <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
-          <Field label="Название компании" value={uploadCompany} onChange={setUploadCompany} placeholder="ООО «Ваша компания»" />
+          <div>
+            <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Название компании</label>
+            <input className="input-field" value={uploadCompany} onChange={e => setUploadCompany(e.target.value)} placeholder="ООО «Ваша компания»" />
+            {(mySupplier?.name || currentUser.name) && uploadCompany === (mySupplier?.name || currentUser.name) && (
+              <p className="text-xs text-white/30 mt-1">Подтянуто из профиля поставщика</p>
+            )}
+          </div>
           <Field label="Предлагаемая цена" value={uploadPrice} onChange={setUploadPrice} placeholder="0 ₽" />
           <Field label="Срок поставки" value={uploadDelivery} onChange={setUploadDelivery} placeholder="Например: 14 дней" />
           <div>
@@ -501,6 +523,14 @@ export default function RFPModule({ onBack }: Props) {
             <input className="input-field" type="date" value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))} />
             <p className="text-xs text-white/30 mt-1">Когда срок закончится, запрос автоматически исчезнет из общего потока.</p>
           </div>
+          <div>
+            <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Телефон для обратной связи</label>
+            <input className="input-field" type="tel" placeholder="+7 (___) ___-__-__" value={form.contactPhone} onChange={e => setForm(f => ({ ...f, contactPhone: e.target.value }))} />
+            <div className="flex items-start gap-2 mt-2 p-3 rounded-xl" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
+              <Icon name="Lock" size={13} color="#8b5cf6" className="flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-violet-300/80">Телефон не отображается в карточке запроса. Он будет доступен только победителю после того, как вы выберете его предложение.</p>
+            </div>
+          </div>
           <div className="flex gap-3">
             <button onClick={() => saveRfp("Черновик")} className="btn-ghost flex-1" disabled={!form.title}>Сохранить черновик</button>
             <button onClick={() => saveRfp("Активен")} className="btn-primary flex-1 flex items-center justify-center gap-2" disabled={!form.title || !form.desc}><Icon name="Send" size={16} />{view === "edit" ? "Сохранить" : "Опубликовать"}</button>
@@ -541,15 +571,70 @@ export default function RFPModule({ onBack }: Props) {
             <div className="glass rounded-2xl p-4" style={{ border: '1px solid rgba(139,92,246,0.3)' }}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: '#8b5cf6' }}><Icon name="Award" size={14} color="#8b5cf6" />Вас выбрали победителем ({myInterestNotices.length})</p>
               <div className="space-y-2">
-                {myInterestNotices.map(n => (
-                  <div key={n.id} className="rounded-xl p-3" style={{ background: 'rgba(139,92,246,0.08)' }}>
-                    <p className="text-sm text-white font-medium">{n.rfpTitle}</p>
-                    <p className="text-xs text-white/50 mt-0.5">Заказчик: {n.fromName} · {n.date}</p>
-                  </div>
-                ))}
+                {myInterestNotices.map(n => {
+                  // Найдём само предложение победителя по этому заказу
+                  const myProposal = proposals.find(p => p.rfpId === n.rfpId && p.supplierId === currentUser.id);
+                  // Найдём RFP чтобы показать телефон заказчика победителю
+                  const rfp = rfpList.find(r => r.id === n.rfpId);
+                  return (
+                    <button key={n.id} onClick={() => setWinnerContactModal(n)} className="w-full text-left rounded-xl p-3 transition-all hover:bg-white/5" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.15)' }}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white font-semibold truncate">{n.rfpTitle}</p>
+                          <p className="text-xs text-white/50 mt-0.5">Заказчик: {n.fromName} · {n.date}</p>
+                          {myProposal && <p className="text-xs text-violet-300 mt-0.5">Моё предложение: {myProposal.price.toLocaleString("ru-RU")} ₽ · {myProposal.delivery}</p>}
+                        </div>
+                        <div className="flex-shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium" style={{ background: 'rgba(139,92,246,0.2)', color: '#a78bfa' }}>Связаться →</div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
+
+          {/* Модалка «Связаться с заказчиком» */}
+          {winnerContactModal && (() => {
+            const myProposal = proposals.find(p => p.rfpId === winnerContactModal.rfpId && p.supplierId === currentUser.id);
+            const rfp = rfpList.find(r => r.id === winnerContactModal.rfpId);
+            return (
+              <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)' }} onClick={() => setWinnerContactModal(null)}>
+                <div className="w-full max-w-md mx-4 mb-4 sm:mb-0 rounded-3xl p-6 space-y-4 animate-fade-up opacity-0" style={{ background: 'rgba(15,23,42,0.98)', border: '1px solid rgba(139,92,246,0.3)', animationFillMode: 'forwards' }} onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.2)' }}><Icon name="Award" size={20} color="#8b5cf6" /></div>
+                    <div><h3 className="text-base font-bold text-white">Связаться с заказчиком</h3><p className="text-xs text-white/40 truncate">{winnerContactModal.rfpTitle}</p></div>
+                  </div>
+
+                  {/* Детали моего предложения */}
+                  {myProposal && (
+                    <div className="rounded-xl p-3 space-y-1.5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">Моё предложение</p>
+                      <p className="text-sm text-white">{myProposal.company} · <span className="text-green-400 font-semibold">{myProposal.price.toLocaleString("ru-RU")} ₽</span></p>
+                      <p className="text-xs text-white/50">Срок: {myProposal.delivery} · Файл: {myProposal.file}</p>
+                    </div>
+                  )}
+
+                  {/* Телефон заказчика — доступен только победителю */}
+                  {rfp?.contactPhone && (
+                    <div className="rounded-xl p-3" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
+                      <p className="text-xs text-white/40 mb-1">Телефон заказчика</p>
+                      <p className="text-sm font-semibold text-violet-300">{rfp.contactPhone}</p>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <button onClick={() => { const phone = rfp?.contactPhone?.replace(/\D/g, "") || ""; if (phone) window.location.href = `tel:+${phone}`; else showToast("Телефон заказчика не указан"); }} className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left" style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)' }}>
+                      <Icon name="Phone" size={18} color="#10b981" /><span className="text-sm font-medium text-white flex-1">Позвонить заказчику</span><Icon name="ChevronRight" size={15} color="rgba(255,255,255,0.3)" />
+                    </button>
+                    <button onClick={() => { if (rfp) { setChatPeer({ rfpId: rfp.id, supplierId: currentUser.id, company: winnerContactModal.fromName }); setWinnerContactModal(null); setView("chat"); } }} className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left" style={{ background: 'rgba(27,111,255,0.12)', border: '1px solid rgba(27,111,255,0.3)' }}>
+                      <Icon name="MessageSquare" size={18} color="#4d8fff" /><span className="text-sm font-medium text-white flex-1">Написать в приложении</span><Icon name="ChevronRight" size={15} color="rgba(255,255,255,0.3)" />
+                    </button>
+                  </div>
+                  <button onClick={() => setWinnerContactModal(null)} className="btn-ghost w-full text-sm">Закрыть</button>
+                </div>
+              </div>
+            );
+          })()}
 
           {isExecutor && (
             <button onClick={() => { const s = mySupplier || { id: currentUser.id, name: currentUser.name, about: "", permit: "", location: currentUser.location || "", contacts: currentUser.phone || "", site: "", completedOrders: 0, verified: false }; setViewedSupplierId(currentUser.id); if (!mySupplier) setSuppliers(prev => [...prev, s]); setView("supplier"); }} className="w-full flex items-center gap-3 p-4 rounded-2xl text-left" style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)' }}>
@@ -608,6 +693,12 @@ export default function RFPModule({ onBack }: Props) {
             {(myProposals.length > 0 || myRfps.length > 0) && <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-white font-bold" style={{ background: '#8b5cf6', fontSize: '9px' }}>{myProposals.length + myRfps.length}</span>}
           </button>
         </div>
+        {/* Поиск по категории, месту, описанию */}
+        <div className="max-w-2xl mx-auto mt-2.5 relative">
+          <Icon name="Search" size={15} color="rgba(255,255,255,0.3)" className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input className="input-field pl-12 py-2 text-sm" placeholder="Поиск по категории, месту, описанию..." value={rfpSearch} onChange={e => setRfpSearch(e.target.value)} />
+          {rfpSearch && <button onClick={() => setRfpSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2"><Icon name="X" size={14} color="rgba(255,255,255,0.4)" /></button>}
+        </div>
       </div>
       <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
         {/* Любой пользователь может бесплатно разместить запрос */}
@@ -648,7 +739,7 @@ export default function RFPModule({ onBack }: Props) {
                   <span className="flex items-center gap-1"><Icon name="FileText" size={11} />{proposals.filter(p => p.rfpId === rfp.id).length}</span>
                 </div>
                 <div className="flex gap-2 pt-3 border-t border-white/8">
-                  <button onClick={() => { setSelectedRfp(rfp); if (isExecutor) { setView("upload"); } else { setRequestPhone(currentUser.phone || ""); setRequestAgreed(false); setView("request"); } }} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-white/60 hover:text-white transition-colors hover:bg-white/10 active:scale-95">
+                  <button onClick={() => { setSelectedRfp(rfp); if (isExecutor) { setUploadCompany(mySupplier?.name || currentUser.name || ""); setView("upload"); } else { setRequestPhone(currentUser.phone || ""); setRequestAgreed(false); setView("request"); } }} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-white/60 hover:text-white transition-colors hover:bg-white/10 active:scale-95">
                     <Icon name="Upload" size={13} />Загрузить предложение
                   </button>
                   <button onClick={() => { setSelectedRfp(rfp); setView("compare"); }} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors active:scale-95" style={{ background: 'rgba(27,111,255,0.1)', border: '1px solid rgba(27,111,255,0.2)' }}>
