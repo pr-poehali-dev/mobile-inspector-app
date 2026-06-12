@@ -222,21 +222,75 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
             </div>
           </div>
 
-          {/* ── ЛЕКЦИЯ: Word-подобный редактор ── */}
+          {/* ── ЛЕКЦИЯ: загрузка PDF ── */}
           {L.type === "lecture" && (
             <div className="glass rounded-2xl p-4 space-y-3">
-              <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">Текстовый редактор лекции</p>
-              <div className="flex gap-1.5 flex-wrap">
-                {[{ i: "Bold", w: "**текст**" }, { i: "Italic", w: "_текст_" }, { i: "List", w: "\n• пункт" }, { i: "ListOrdered", w: "\n1. пункт" }, { i: "Heading", w: "\n## Заголовок" }].map(b => (
-                  <button key={b.i} onClick={() => setL({ content: L.content + b.w })} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.12)' }}><Icon name={b.i} size={15} color="#60a5fa" /></button>
-                ))}
-              </div>
-              <textarea className="input-field resize-none" rows={6} placeholder="Текст лекции. Используйте кнопки форматирования выше..." value={L.content} onChange={e => setL({ content: e.target.value })} />
-              <div>
-                <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Изображения</label>
-                <div className="flex flex-wrap gap-2 mb-2">{L.images.map((img, i) => <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden"><img src={img} alt="" className="w-full h-full object-cover" /><button onClick={() => setL({ images: L.images.filter((_, idx) => idx !== i) })} className="absolute top-0.5 right-0.5 w-4 h-4 rounded flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}><Icon name="X" size={9} color="white" /></button></div>)}</div>
-                <label className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center gap-1 cursor-pointer" style={{ background: 'rgba(59,130,246,0.12)', color: '#60a5fa' }}><Icon name="ImagePlus" size={13} color="#60a5fa" />Добавить изображение<input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) readImage(f, url => setL({ images: [...L.images, url] })); e.target.value = ""; }} /></label>
-              </div>
+              <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">Загрузка лекции (PDF)</p>
+              <input
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                id="lecture-pdf-input"
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  if (f.type !== "application/pdf") { showToast("Поддерживается только PDF"); e.target.value = ""; return; }
+                  if (f.size > 50 * 1024 * 1024) { showToast("Файл слишком большой — максимум 50 МБ"); e.target.value = ""; return; }
+                  const reader = new FileReader();
+                  reader.onload = () => setL({ content: reader.result as string, files: [f.name] });
+                  reader.readAsDataURL(f);
+                  e.target.value = "";
+                }}
+              />
+              {L.content && L.content.startsWith("data:application/pdf") ? (
+                <div className="space-y-3">
+                  {/* Имя файла + кнопка замены */}
+                  <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                    <Icon name="FileText" size={20} color="#ef4444" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{L.files[0] || "lecture.pdf"}</p>
+                      <p className="text-xs text-white/40">PDF · загружен</p>
+                    </div>
+                    <button
+                      onClick={() => document.getElementById("lecture-pdf-input")?.click()}
+                      className="text-xs px-3 py-1.5 rounded-lg flex-shrink-0"
+                      style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}
+                    >Заменить</button>
+                    <button
+                      onClick={() => setL({ content: "", files: [] })}
+                      className="p-1.5 rounded-lg hover:bg-white/10"
+                    ><Icon name="X" size={15} color="rgba(239,68,68,0.7)" /></button>
+                  </div>
+                  {/* Встроенный просмотрщик PDF без возможности копирования */}
+                  <div
+                    className="rounded-xl overflow-hidden"
+                    style={{ height: 480, position: 'relative' }}
+                    onContextMenu={e => e.preventDefault()}
+                  >
+                    <div style={{ position: 'absolute', inset: 0, zIndex: 1, userSelect: 'none', WebkitUserSelect: 'none' }} onContextMenu={e => e.preventDefault()} />
+                    <embed
+                      src={`${L.content}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+                      type="application/pdf"
+                      width="100%"
+                      height="100%"
+                      style={{ pointerEvents: 'none', display: 'block' }}
+                    />
+                  </div>
+                  <p className="text-xs text-white/30">Предпросмотр PDF. Копирование текста отключено.</p>
+                </div>
+              ) : (
+                <button
+                  onClick={() => document.getElementById("lecture-pdf-input")?.click()}
+                  className="w-full flex flex-col items-center gap-3 py-8 rounded-xl transition-all"
+                  style={{ background: 'rgba(255,255,255,0.03)', border: '2px dashed rgba(255,255,255,0.15)' }}
+                >
+                  <Icon name="FileText" size={32} color="rgba(239,68,68,0.6)" />
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-white/70">Загрузить PDF-файл</p>
+                    <p className="text-xs text-white/30 mt-1">Только PDF · до 50 МБ</p>
+                  </div>
+                </button>
+              )}
               <Field label="Видео (YouTube / Vimeo)" value={L.videoUrl || ""} onChange={v => setL({ videoUrl: v })} placeholder="https://youtube.com/watch?v=..." />
             </div>
           )}
