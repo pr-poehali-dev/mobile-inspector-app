@@ -70,7 +70,20 @@ interface Homework {
 
 interface Group { id: number; courseId: number; name: string; startDate: string; }
 interface Lesson_Plan { id: number; groupId: number; courseTitle: string; title: string; date: string; time: string; }
-interface Enrollment { id: number; courseId: number; courseTitle: string; fio: string; phone: string; date: string; ownerId?: number; schoolName?: string; }
+interface Enrollment {
+  id: number;
+  courseId: number;
+  courseTitle: string;
+  fio: string;
+  phone: string;
+  date: string;
+  ownerId?: number;
+  schoolName?: string;
+  status?: "pending" | "approved" | "rejected"; // статус заявки
+  rejectReason?: string;                          // причина отказа
+  approvedAt?: string;                            // дата одобрения
+  userId?: number;                                // ID ученика
+}
 
 const newLesson = (type: LessonType): Lesson => ({
   id: Date.now(), title: LESSON_TYPES[type].label, type, content: "", images: [], files: [], completion: "Посмотреть до конца",
@@ -127,8 +140,8 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
   const [homework, setHomework] = usePersistentState<Homework[]>(`school_homework_${currentUser.id}`, INITIAL_HOMEWORK);
   const [groups, setGroups] = usePersistentState<Group[]>(`school_groups_${currentUser.id}`, []);
   const [plans, setPlans] = usePersistentState<Lesson_Plan[]>(`school_plans_${currentUser.id}`, []);
-  // Записи на курсы — глобальный store (заполняется учениками из раздела «Обучение»)
-  const [enrollments] = usePersistentState<Enrollment[]>(`school_enrollments_all`, []);
+  // Записи на курсы — глобальный store (заполняется учениками + управляется владельцем)
+  const [enrollments, setEnrollments] = usePersistentState<Enrollment[]>(`school_enrollments_all`, []);
 
   // Если передан initialCourseId — используем его, иначе первый курс
   const resolvedCourseId = initialCourseId && courses.find(c => c.id === initialCourseId) ? initialCourseId : courses[0]?.id || 0;
@@ -570,19 +583,77 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
         )}
 
         {/* ── ЗАПИСИ НА КУРС ── */}
-        {tab === "enroll" && (
+        {tab === "enroll" && (() => {
+          const pendingCount = courseEnrollments.filter(e => !e.status || e.status === "pending").length;
+          return (
           <div className="space-y-3">
-            <p className="text-xs text-white/40 px-1">Записи на курс «{activeCourse?.title || "—"}» поступают от пользователей через раздел «Обучение».</p>
-            {courseEnrollments.length === 0 && <div className="text-center py-10 text-white/30 text-sm">Пока нет записей на этот курс</div>}
-            {courseEnrollments.map(en => (
-              <div key={en.id} className="glass rounded-2xl p-4">
-                <div className="flex items-center justify-between mb-1"><p className="text-sm font-semibold text-white">{en.fio}</p><span className="text-xs text-white/40">{en.date}</span></div>
-                <p className="text-xs text-white/50 flex items-center gap-1"><Icon name="Phone" size={11} />{en.phone}</p>
-                <p className="text-xs text-white/50 flex items-center gap-1 mt-1"><Icon name="GraduationCap" size={11} color="#3b82f6" />Курс: {en.courseTitle}</p>
-              </div>
-            ))}
+            <div className="flex items-center gap-2 px-1">
+              <p className="text-xs text-white/40 flex-1">Заявки на курс «{activeCourse?.title || "—"}»</p>
+              {pendingCount > 0 && <span className="px-2 py-0.5 rounded-full text-xs font-bold text-white" style={{ background: '#f59e0b' }}>{pendingCount} ожидают</span>}
+            </div>
+            {courseEnrollments.length === 0 && <div className="text-center py-10 text-white/30 text-sm">Пока нет заявок на этот курс</div>}
+            {courseEnrollments.map(en => {
+              const status = en.status || "pending";
+              const statusMeta = {
+                pending:  { label: "На рассмотрении", color: "#f59e0b", bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.3)" },
+                approved: { label: "Одобрено",         color: "#10b981", bg: "rgba(16,185,129,0.12)", border: "rgba(16,185,129,0.3)" },
+                rejected: { label: "Отклонено",        color: "#ef4444", bg: "rgba(239,68,68,0.08)",  border: "rgba(239,68,68,0.25)" },
+              }[status];
+              return (
+                <div key={en.id} className="glass rounded-2xl p-4 space-y-3" style={{ border: `1px solid ${statusMeta.border}` }}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-white">{en.fio}</p>
+                      <p className="text-xs text-white/50 flex items-center gap-1 mt-0.5"><Icon name="Phone" size={11} />{en.phone}</p>
+                      <p className="text-xs text-white/40 mt-0.5">{en.date}</p>
+                    </div>
+                    <span className="text-xs px-2 py-0.5 rounded-lg font-medium flex-shrink-0" style={{ background: statusMeta.bg, color: statusMeta.color }}>{statusMeta.label}</span>
+                  </div>
+                  {status === "rejected" && en.rejectReason && (
+                    <p className="text-xs text-red-300/70 px-1">Причина: {en.rejectReason}</p>
+                  )}
+                  {status === "approved" && en.approvedAt && (
+                    <p className="text-xs text-green-400/60 px-1">Одобрено: {en.approvedAt}</p>
+                  )}
+                  {/* Кнопки управления */}
+                  {status !== "approved" && (
+                    <button
+                      onClick={() => {
+                        setEnrollments(prev => prev.map(e => e.id === en.id
+                          ? { ...e, status: "approved", approvedAt: new Date().toLocaleDateString("ru-RU"), rejectReason: undefined }
+                          : e));
+                        showToast(`✅ Доступ одобрен — ${en.fio}`);
+                      }}
+                      className="w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
+                      style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: 'white' }}
+                    >
+                      <Icon name="CheckCircle" size={15} color="white" />Одобрить доступ
+                    </button>
+                  )}
+                  {status === "approved" && (
+                    <button
+                      onClick={() => {
+                        setEnrollments(prev => prev.map(e => e.id === en.id ? { ...e, status: "pending", approvedAt: undefined } : e));
+                        showToast("Доступ отозван");
+                      }}
+                      className="w-full py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
+                      style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444' }}
+                    >
+                      <Icon name="UserX" size={14} color="#ef4444" />Отозвать доступ
+                    </button>
+                  )}
+                  {status !== "rejected" && (
+                    <RejectPanel enrollId={en.id} onReject={(id, reason) => {
+                      setEnrollments(prev => prev.map(e => e.id === id ? { ...e, status: "rejected", rejectReason: reason, approvedAt: undefined } : e));
+                      showToast("Заявка отклонена");
+                    }} />
+                  )}
+                </div>
+              );
+            })}
           </div>
-        )}
+          );
+        })()}
 
         {/* ── АНАЛИТИКА ── */}
         {tab === "analytics" && (
@@ -695,6 +766,27 @@ function Field({ label, value, onChange, placeholder, textarea }: { label: strin
     <div>
       <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">{label}</label>
       {textarea ? <textarea className="input-field resize-none" rows={3} placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)} /> : <input className="input-field" placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)} />}
+    </div>
+  );
+}
+
+function RejectPanel({ enrollId, onReject }: { enrollId: number; onReject: (id: number, reason: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  if (!open) return (
+    <button onClick={() => setOpen(true)} className="w-full py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-2" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444' }}>
+      <Icon name="X" size={14} color="#ef4444" />Отклонить
+    </button>
+  );
+  return (
+    <div className="space-y-2">
+      <textarea className="input-field text-sm resize-none" rows={2} placeholder="Причина отклонения (необязательно)..." value={reason} onChange={e => setReason(e.target.value)} />
+      <div className="flex gap-2">
+        <button onClick={() => setOpen(false)} className="btn-ghost flex-1 text-sm py-2">Отмена</button>
+        <button onClick={() => { onReject(enrollId, reason); setOpen(false); setReason(""); }} className="flex-1 py-2 rounded-xl text-sm font-semibold" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
+          Подтвердить отказ
+        </button>
+      </div>
     </div>
   );
 }

@@ -28,8 +28,8 @@ export default function LearningModule({ onBack }: Props) {
   const isSchool = isAdmin || hasRole("school");
   const mySchoolReq = roleRequests.filter(r => r.userId === currentUser.id && r.role === "school").slice(-1)[0];
   const [view, setView] = useState<"list" | "course" | "lesson" | "test" | "cert">("list");
-  const [school, setSchool] = useState(false); // режим администратора школы
-  const [browseMode, setBrowseMode] = useState<"all" | "schools">("all"); // поиск по общему потоку / по школам
+  const [school, setSchool] = useState(false);
+  const [browseMode, setBrowseMode] = useState<"all" | "schools" | "my-enrollments" | "my-courses">("all");
   const [selectedCourse, setSelectedCourse] = useState<typeof COURSES[0] | null>(null);
   const [testAnswers, setTestAnswers] = useState<Record<number, number>>({});
   const [testDone, setTestDone] = useState(false);
@@ -46,7 +46,12 @@ export default function LearningModule({ onBack }: Props) {
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [enrollFio, setEnrollFio] = useState("");
   const [enrollPhone, setEnrollPhone] = useState("");
-  const [, setAllEnrollments] = usePersistentState<Enrollment[]>("school_enrollments_all", []);
+  const [allEnrollments, setAllEnrollments] = usePersistentState<Enrollment[]>("school_enrollments_all", []);
+
+  // Мои заявки (по userId или по fio — для обратной совместимости со старыми записями без userId)
+  const myEnrollments = allEnrollments.filter(e => e.userId === currentUser.id);
+  // Одобренные курсы — IDs курсов, на которые ученик получил доступ
+  const approvedCourseIds = new Set(myEnrollments.filter(e => e.status === "approved").map(e => e.courseId));
   const [publishedCourses] = usePersistentState<PublishedCourse[]>("published_courses_all", []);
   // Для просмотра уроков курса из конструктора — храним ownerId выбранного курса
   const [selectedCourseOwnerId, setSelectedCourseOwnerId] = useState<number | null>(null);
@@ -80,8 +85,137 @@ export default function LearningModule({ onBack }: Props) {
   // Кабинет школы — открываем SchoolsModule сразу на странице кабинета
   if (school) return <SchoolsModule onBack={() => setSchool(false)} initialView="cabinet" />;
 
-  // Просмотр курсов по школам (раздел «Школы» встроен в «Обучение»)
+  // Просмотр курсов по школам
   if (view === "list" && browseMode === "schools") return <SchoolsModule embedded onBack={() => setBrowseMode("all")} />;
+
+  // ── МОИ ЗАПИСИ ──
+  if (view === "list" && browseMode === "my-enrollments") {
+    const statusMeta = {
+      pending:  { label: "На рассмотрении", color: "#f59e0b", bg: "rgba(245,158,11,0.12)", icon: "Clock" },
+      approved: { label: "Одобрено",         color: "#10b981", bg: "rgba(16,185,129,0.12)", icon: "CheckCircle" },
+      rejected: { label: "Отклонено",        color: "#ef4444", bg: "rgba(239,68,68,0.08)",  icon: "XCircle" },
+    } as const;
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        {toast && <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-2xl text-sm font-medium text-white animate-fade-up" style={{ background: 'rgba(59,130,246,0.9)', backdropFilter: 'blur(12px)' }}>{toast}</div>}
+        <div className="glass border-b border-white/10 px-4 py-3 sticky top-0 z-20">
+          <div className="max-w-2xl mx-auto flex items-center gap-2">
+            <button onClick={() => setBrowseMode("all")} className="p-2 rounded-xl hover:bg-white/10 flex-shrink-0"><Icon name="ArrowLeft" size={20} color="white" /></button>
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(245,158,11,0.2)' }}><Icon name="ClipboardList" size={16} color="#f59e0b" /></div>
+            <div className="flex-1"><h1 className="text-base font-bold text-white">Мои записи</h1><p className="text-xs text-white/40">{myEnrollments.length} заявок</p></div>
+          </div>
+        </div>
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
+          {myEnrollments.length === 0 && (
+            <div className="text-center py-16 space-y-3">
+              <Icon name="ClipboardList" size={36} color="rgba(255,255,255,0.2)" className="mx-auto" />
+              <p className="text-white/40 text-sm">Вы ещё не записались ни на один курс</p>
+              <button onClick={() => setBrowseMode("all")} className="btn-primary mx-auto flex items-center gap-2 px-6" style={{ background: 'linear-gradient(135deg,#3b82f6,#2563eb)' }}>
+                <Icon name="Search" size={16} />Посмотреть курсы
+              </button>
+            </div>
+          )}
+          {myEnrollments.map((en, i) => {
+            const st = (en.status || "pending") as keyof typeof statusMeta;
+            const meta = statusMeta[st];
+            return (
+              <div key={en.id} className="glass rounded-2xl p-4 animate-fade-up opacity-0" style={{ animationDelay: `${i * 0.05}s`, animationFillMode: 'forwards', border: `1px solid ${meta.bg}` }}>
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white leading-snug">{en.courseTitle}</p>
+                    <p className="text-xs text-white/40 mt-0.5">Заявка от {en.date}</p>
+                  </div>
+                  <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-lg flex-shrink-0 font-medium" style={{ background: meta.bg, color: meta.color }}>
+                    <Icon name={meta.icon} size={11} color={meta.color} />{meta.label}
+                  </span>
+                </div>
+                {st === "rejected" && en.rejectReason && (
+                  <p className="text-xs text-red-300/70 px-1 mb-2">Причина: {en.rejectReason}</p>
+                )}
+                {st === "approved" && en.approvedAt && (
+                  <p className="text-xs text-green-400/60 px-1 mb-2">Одобрено: {en.approvedAt}</p>
+                )}
+                {st === "approved" && (
+                  <button
+                    onClick={() => {
+                      const course = allCourses.find(c => c.id === en.courseId);
+                      if (course) { setSelectedCourse(course as typeof COURSES[0]); const pub = publishedCourses.find(p => p.id + 100000 === course.id); setSelectedCourseOwnerId(pub ? pub.ownerId : null); setView("course"); }
+                    }}
+                    className="w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 mt-1"
+                    style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: 'white' }}
+                  >
+                    <Icon name="Play" size={15} color="white" />Перейти к обучению
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ── МОИ КУРСЫ (одобренные) ──
+  if (view === "list" && browseMode === "my-courses") {
+    const approvedEnrollments = myEnrollments.filter(e => e.status === "approved");
+    const approvedCourses = approvedEnrollments.map(en => ({
+      enrollment: en,
+      course: allCourses.find(c => c.id === en.courseId),
+    })).filter(x => x.course);
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        {toast && <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-2xl text-sm font-medium text-white animate-fade-up" style={{ background: 'rgba(59,130,246,0.9)', backdropFilter: 'blur(12px)' }}>{toast}</div>}
+        <div className="glass border-b border-white/10 px-4 py-3 sticky top-0 z-20">
+          <div className="max-w-2xl mx-auto flex items-center gap-2">
+            <button onClick={() => setBrowseMode("all")} className="p-2 rounded-xl hover:bg-white/10 flex-shrink-0"><Icon name="ArrowLeft" size={20} color="white" /></button>
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(16,185,129,0.2)' }}><Icon name="BookOpen" size={16} color="#10b981" /></div>
+            <div className="flex-1"><h1 className="text-base font-bold text-white">Мои курсы</h1><p className="text-xs text-white/40">{approvedCourses.length} курсов с доступом</p></div>
+          </div>
+        </div>
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
+          {approvedCourses.length === 0 && (
+            <div className="text-center py-16 space-y-3">
+              <Icon name="BookOpen" size={36} color="rgba(255,255,255,0.2)" className="mx-auto" />
+              <p className="text-white/40 text-sm">Нет одобренных курсов</p>
+              <p className="text-white/30 text-xs">Запишитесь на курс и дождитесь одобрения от владельца</p>
+              <button onClick={() => setBrowseMode("all")} className="btn-primary mx-auto flex items-center gap-2 px-6" style={{ background: 'linear-gradient(135deg,#3b82f6,#2563eb)' }}>
+                <Icon name="Search" size={16} />Найти курс
+              </button>
+            </div>
+          )}
+          {approvedCourses.map(({ enrollment: en, course }, i) => {
+            if (!course) return null;
+            const pub = publishedCourses.find(p => p.id + 100000 === course.id);
+            return (
+              <div key={en.id} className="glass rounded-2xl p-4 animate-fade-up opacity-0" style={{ animationDelay: `${i * 0.06}s`, animationFillMode: 'forwards', border: '1px solid rgba(16,185,129,0.2)' }}>
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(16,185,129,0.15)' }}>
+                    <Icon name="GraduationCap" size={20} color="#10b981" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white leading-snug">{course.title}</p>
+                    {pub && <p className="text-xs text-white/40 mt-0.5 flex items-center gap-1"><Icon name="School" size={11} />{pub.schoolName}</p>}
+                    <p className="text-xs text-green-400/70 mt-0.5">Доступ одобрен{en.approvedAt ? `: ${en.approvedAt}` : ""}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setSelectedCourse(course as typeof COURSES[0]);
+                    setSelectedCourseOwnerId(pub ? pub.ownerId : null);
+                    setView("course");
+                  }}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
+                  style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: 'white' }}
+                >
+                  <Icon name="Play" size={15} color="white" />Перейти к обучению
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   const score = QUESTIONS.filter(q => testAnswers[q.id] === q.correct).length;
   const submitTest = () => setTestDone(true);
@@ -333,6 +467,11 @@ export default function LearningModule({ onBack }: Props) {
   }
 
   if (view === "course" && selectedCourse) {
+    // Для курсов из конструктора — проверяем одобренную заявку
+    const isPublishedCourse = selectedCourse.id > 100000;
+    const hasApprovedAccess = !isPublishedCourse || approvedCourseIds.has(selectedCourse.id);
+    const myEnrollForThisCourse = myEnrollments.find(e => e.courseId === selectedCourse.id);
+
     return (
       <div className="min-h-screen relative z-10 animate-fade-in">
         {toast && (
@@ -351,28 +490,58 @@ export default function LearningModule({ onBack }: Props) {
               <div className="h-full rounded-full" style={{ width: `${selectedCourse.progress}%`, background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)' }} />
             </div>
           </div>
+          {/* Блок доступа — только для курсов из конструктора без одобрения */}
+          {!hasApprovedAccess && (
+            <div className="glass rounded-2xl p-5 space-y-3" style={{ border: `1px solid ${myEnrollForThisCourse?.status === "rejected" ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}` }}>
+              <div className="flex items-start gap-3">
+                <Icon name={myEnrollForThisCourse?.status === "rejected" ? "XCircle" : "Lock"} size={22} color={myEnrollForThisCourse?.status === "rejected" ? "#ef4444" : "#f59e0b"} />
+                <div>
+                  <p className="text-sm font-semibold text-white">
+                    {myEnrollForThisCourse?.status === "rejected" ? "Заявка отклонена" : myEnrollForThisCourse ? "Заявка на рассмотрении" : "Требуется запись на курс"}
+                  </p>
+                  <p className="text-xs text-white/50 mt-1">
+                    {myEnrollForThisCourse?.status === "rejected"
+                      ? (myEnrollForThisCourse.rejectReason ? `Причина: ${myEnrollForThisCourse.rejectReason}` : "Владелец курса отклонил вашу заявку")
+                      : myEnrollForThisCourse
+                      ? "Владелец курса рассмотрит вашу заявку. После одобрения уроки станут доступны."
+                      : "Запишитесь на курс, чтобы получить доступ к урокам после одобрения."}
+                  </p>
+                  {myEnrollForThisCourse?.status === "pending" && (
+                    <p className="text-xs text-white/30 mt-0.5">Заявка подана: {myEnrollForThisCourse.date}</p>
+                  )}
+                </div>
+              </div>
+              {!myEnrollForThisCourse && (
+                <button onClick={() => { setEnrollFio(""); setEnrollPhone(""); setEnrollOpen(true); }} className="w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg,#3b82f6,#2563eb)', color: 'white' }}>
+                  <Icon name="UserPlus" size={15} color="white" />Записаться на курс
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="space-y-2">
             {Array.from({ length: selectedCourse.lessons }).map((_, i) => {
               const done = i < Math.floor(selectedCourse.lessons * selectedCourse.progress / 100);
               const current = i === Math.floor(selectedCourse.lessons * selectedCourse.progress / 100);
               const lessonNames = ["Введение в курс", "Основные понятия", "Практические примеры"];
               const name = i === selectedCourse.lessons - 1 ? "Итоговый тест" : lessonNames[i] || `Тема ${i + 1}`;
+              const locked = !hasApprovedAccess || (!done && !current);
               return (
                 <button
                   key={i}
-                  disabled={!done && !current}
+                  disabled={locked}
                   onClick={() => {
                     if (i === selectedCourse.lessons - 1) { setView("test"); setTestAnswers({}); setTestDone(false); }
                     else { setActiveLessonIdx(i); setView("lesson"); }
                   }}
                   className="w-full flex items-center gap-3 p-4 rounded-2xl text-left transition-all"
-                  style={{ background: done ? 'rgba(59,130,246,0.08)' : current ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)', border: `1px solid ${done ? 'rgba(59,130,246,0.2)' : current ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)'}`, opacity: !done && !current ? 0.4 : 1 }}
+                  style={{ background: done ? 'rgba(59,130,246,0.08)' : current && hasApprovedAccess ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)', border: `1px solid ${done ? 'rgba(59,130,246,0.2)' : current && hasApprovedAccess ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)'}`, opacity: locked ? 0.35 : 1 }}
                 >
                   <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: done ? 'rgba(59,130,246,0.25)' : 'rgba(255,255,255,0.08)' }}>
-                    <Icon name={done ? "CheckCircle" : current ? "Play" : "Lock"} size={16} color={done ? "#3b82f6" : current ? "white" : "rgba(255,255,255,0.4)"} />
+                    <Icon name={done ? "CheckCircle" : current && hasApprovedAccess ? "Play" : "Lock"} size={16} color={done ? "#3b82f6" : current && hasApprovedAccess ? "white" : "rgba(255,255,255,0.4)"} />
                   </div>
                   <div className="flex-1">
-                    <p className={`text-sm font-medium ${done ? "text-white/60" : current ? "text-white" : "text-white/30"}`}>
+                    <p className={`text-sm font-medium ${done ? "text-white/60" : current && hasApprovedAccess ? "text-white" : "text-white/30"}`}>
                       Урок {i + 1}: {name}
                     </p>
                   </div>
@@ -382,25 +551,29 @@ export default function LearningModule({ onBack }: Props) {
               );
             })}
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => {
-                const currentIdx = Math.floor(selectedCourse.lessons * selectedCourse.progress / 100);
-                setActiveLessonIdx(currentIdx);
-                setView("lesson");
-              }}
-              className="btn-primary flex-1 flex items-center justify-center gap-2"
-            >
-              <Icon name="Play" size={18} />Продолжить обучение
+          {hasApprovedAccess && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  const currentIdx = Math.floor(selectedCourse.lessons * selectedCourse.progress / 100);
+                  setActiveLessonIdx(currentIdx);
+                  setView("lesson");
+                }}
+                className="btn-primary flex-1 flex items-center justify-center gap-2"
+              >
+                <Icon name="Play" size={18} />Продолжить обучение
+              </button>
+              <button onClick={() => { setView("test"); setTestAnswers({}); setTestDone(false); }} className="btn-ghost px-4 flex items-center gap-2 text-sm">
+                <Icon name="ClipboardCheck" size={16} />Тест
+              </button>
+            </div>
+          )}
+          {/* Кнопка «Записаться» — только если нет заявки и это курс из конструктора */}
+          {hasApprovedAccess && !isPublishedCourse && (
+            <button onClick={() => { setEnrollFio(""); setEnrollPhone(""); setEnrollOpen(true); }} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium text-white" style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}>
+              <Icon name="UserPlus" size={16} />Записаться на курс
             </button>
-            <button onClick={() => { setView("test"); setTestAnswers({}); setTestDone(false); }} className="btn-ghost px-4 flex items-center gap-2 text-sm">
-              <Icon name="ClipboardCheck" size={16} />Тест
-            </button>
-          </div>
-          {/* Запись на курс — доступна любому пользователю */}
-          <button onClick={() => { setEnrollFio(""); setEnrollPhone(""); setEnrollOpen(true); }} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium text-white" style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}>
-            <Icon name="UserPlus" size={16} />Записаться на курс
-          </button>
+          )}
           {selectedCourse.cert && (
             <button onClick={() => setView("cert")} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium text-yellow-400 transition-colors" style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)' }}>
               <Icon name="Award" size={16} color="#f59e0b" />Открыть сертификат
@@ -454,7 +627,24 @@ export default function LearningModule({ onBack }: Props) {
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setEnrollOpen(false)} className="btn-ghost flex-1 text-sm">Отмена</button>
-                <button onClick={() => { if (enrollFio.trim() && enrollPhone.replace(/\D/g, "").length >= 10) { setAllEnrollments(prev => [{ id: Date.now(), courseId: selectedCourse.id, courseTitle: selectedCourse.title, fio: enrollFio, phone: enrollPhone, date: new Date().toLocaleDateString("ru-RU") }, ...prev]); setEnrollOpen(false); showToast("✅ Вы записаны на курс!"); } }} disabled={!enrollFio.trim() || enrollPhone.replace(/\D/g, "").length < 10} className="btn-primary flex-1 text-sm flex items-center justify-center gap-2 disabled:opacity-40"><Icon name="Check" size={15} />Записаться</button>
+                <button onClick={() => {
+                  if (enrollFio.trim() && enrollPhone.replace(/\D/g, "").length >= 10) {
+                    const pub = publishedCourses.find(p => p.id + 100000 === selectedCourse.id);
+                    setAllEnrollments(prev => [{
+                      id: Date.now(),
+                      courseId: selectedCourse.id,
+                      courseTitle: selectedCourse.title,
+                      fio: enrollFio,
+                      phone: enrollPhone,
+                      date: new Date().toLocaleDateString("ru-RU"),
+                      userId: currentUser.id,
+                      ownerId: pub?.ownerId,
+                      status: "pending",
+                    }, ...prev]);
+                    setEnrollOpen(false);
+                    showToast("✅ Заявка отправлена — ожидайте одобрения");
+                  }
+                }} disabled={!enrollFio.trim() || enrollPhone.replace(/\D/g, "").length < 10} className="btn-primary flex-1 text-sm flex items-center justify-center gap-2 disabled:opacity-40"><Icon name="Check" size={15} />Записаться</button>
               </div>
             </div>
           </div>
@@ -473,10 +663,20 @@ export default function LearningModule({ onBack }: Props) {
           <div className="flex-1"><h1 className="text-base font-bold text-white">Обучение · Библиотека</h1><p className="text-xs text-white/40">{allCourses.length} курсов</p></div>
           {isSchool && <button onClick={() => setSchool(true)} className="px-3 h-9 rounded-xl flex items-center gap-1.5" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}><Icon name="School" size={15} color="white" /><span className="text-xs font-semibold text-white">Моя школа</span></button>}
         </div>
-        {/* Переключатель: общий поток курсов / по школам */}
-        <div className="max-w-2xl mx-auto mt-3 flex gap-2 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.05)' }}>
-          <button onClick={() => setBrowseMode("all")} className="flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-all" style={{ background: browseMode === "all" ? 'linear-gradient(135deg,#3b82f6,#2563eb)' : 'transparent', color: browseMode === "all" ? 'white' : 'rgba(255,255,255,0.5)' }}><Icon name="LayoutGrid" size={15} color={browseMode === "all" ? "white" : "rgba(255,255,255,0.5)"} />Все курсы</button>
-          <button onClick={() => setBrowseMode("schools")} className="flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-all" style={{ background: 'transparent', color: 'rgba(255,255,255,0.5)' }}><Icon name="School" size={15} color="rgba(255,255,255,0.5)" />По школам</button>
+        {/* Переключатель вкладок */}
+        <div className="max-w-2xl mx-auto mt-3 flex gap-1.5 overflow-x-auto pb-0.5">
+          {([
+            { k: "all",            icon: "LayoutGrid",  label: "Все курсы" },
+            { k: "schools",        icon: "School",      label: "По школам" },
+            { k: "my-enrollments", icon: "ClipboardList", label: "Мои записи", badge: myEnrollments.filter(e => !e.status || e.status === "pending").length },
+            { k: "my-courses",     icon: "BookOpen",    label: "Мои курсы", badge: approvedCourseIds.size },
+          ] as const).map(t => (
+            <button key={t.k} onClick={() => setBrowseMode(t.k)} className="relative flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all" style={{ background: browseMode === t.k ? 'linear-gradient(135deg,#3b82f6,#2563eb)' : 'rgba(255,255,255,0.06)', color: browseMode === t.k ? 'white' : 'rgba(255,255,255,0.5)' }}>
+              <Icon name={t.icon} size={13} color={browseMode === t.k ? "white" : "rgba(255,255,255,0.5)"} />
+              {t.label}
+              {"badge" in t && t.badge > 0 && <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full text-white font-bold flex items-center justify-center" style={{ background: t.k === "my-courses" ? '#10b981' : '#f59e0b', fontSize: '9px' }}>{t.badge}</span>}
+            </button>
+          ))}
         </div>
         {/* Заявка на роль «Школа» — прямо в библиотеке обучения */}
         {!isSchool && (
