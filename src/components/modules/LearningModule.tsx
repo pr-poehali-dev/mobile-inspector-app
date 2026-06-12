@@ -229,6 +229,11 @@ export default function LearningModule({ onBack }: Props) {
   ];
 
   if (view === "lesson" && selectedCourse) {
+    // Проверка доступа к уроку
+    const lessonIsPublishedCourse = selectedCourse.id > 100000;
+    const lessonHasAccess = !lessonIsPublishedCourse || approvedCourseIds.has(selectedCourse.id);
+    const lessonMyEnroll = myEnrollments.find(e => e.courseId === selectedCourse.id);
+
     // Реальный урок из конструктора (если курс из библиотеки школы)
     const realCourseId = selectedCourse.id - 100000;
     const realCourse = ownerConstructorCourses.find(c => c.id === realCourseId);
@@ -239,8 +244,8 @@ export default function LearningModule({ onBack }: Props) {
     const lessonName = realLesson?.title || (activeLessonIdx === 0 ? "Введение в курс" : activeLessonIdx === 1 ? "Основные понятия" : activeLessonIdx === 2 ? "Практические примеры" : "Итоговые материалы");
     const lessonText = LESSON_TEXTS[Math.min(activeLessonIdx, LESSON_TEXTS.length - 1)];
 
-    const isPdfLesson = realLesson?.lectureType === "pdf" && realLesson?.content?.startsWith("data:application/pdf");
-    const isTextLesson = realLesson && realLesson.type === "lecture" && !isPdfLesson && realLesson.content;
+    const isPdfLesson = lessonHasAccess && realLesson?.lectureType === "pdf" && realLesson?.content?.startsWith("data:application/pdf");
+    const isTextLesson = lessonHasAccess && realLesson && realLesson.type === "lecture" && !isPdfLesson && realLesson.content;
 
     return (
       <div className="min-h-screen relative z-10 animate-fade-in">
@@ -266,8 +271,45 @@ export default function LearningModule({ onBack }: Props) {
             </div>
           </div>
 
-          {/* ── PDF-лекция (защищённый просмотр) ── */}
-          {isPdfLesson ? (
+          {/* ── Блокировка контента без доступа ── */}
+          {!lessonHasAccess ? (
+            <div className="glass rounded-2xl p-6 text-center space-y-4" style={{ border: '1px solid rgba(245,158,11,0.25)' }}>
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto" style={{ background: 'rgba(245,158,11,0.12)' }}>
+                <Icon name="Lock" size={28} color="#f59e0b" />
+              </div>
+              <div>
+                <p className="text-base font-semibold text-white mb-2">Доступ к материалам закрыт</p>
+                <p className="text-sm text-white/50 leading-relaxed">
+                  Чтобы изучать материалы курса, запишитесь на курс и дождитесь одобрения заявки
+                </p>
+                {lessonMyEnroll?.status === "pending" && (
+                  <p className="text-xs text-yellow-400/70 mt-3 flex items-center justify-center gap-1.5">
+                    <Icon name="Clock" size={13} color="#f59e0b" />Заявка отправлена — ожидайте одобрения
+                  </p>
+                )}
+                {lessonMyEnroll?.status === "rejected" && (
+                  <p className="text-xs text-red-400/70 mt-3">
+                    Заявка отклонена{lessonMyEnroll.rejectReason ? `: ${lessonMyEnroll.rejectReason}` : ""}
+                  </p>
+                )}
+              </div>
+              {!lessonMyEnroll && (
+                <button
+                  onClick={() => { setEnrollFio(""); setEnrollPhone(""); setView("course"); setEnrollOpen(true); }}
+                  className="mx-auto flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold"
+                  style={{ background: 'linear-gradient(135deg,#3b82f6,#2563eb)', color: 'white' }}
+                >
+                  <Icon name="UserPlus" size={15} color="white" />Записаться на курс
+                </button>
+              )}
+              <button onClick={() => setView("course")} className="text-xs text-white/30 hover:text-white/50 transition-colors">
+                ← Вернуться к курсу
+              </button>
+            </div>
+          ) : null}
+
+          {/* ── Контент урока (только при наличии доступа) ── */}
+          {lessonHasAccess && isPdfLesson ? (
             <div className="glass-strong rounded-2xl p-4 animate-fade-up opacity-0 space-y-3" style={{ animationFillMode: 'forwards' }}>
               <div className="flex items-center gap-2 mb-1">
                 <Icon name="FileText" size={16} color="#ef4444" />
@@ -301,13 +343,13 @@ export default function LearningModule({ onBack }: Props) {
               </div>
               <p className="text-xs text-white/30 text-center">Файл: {realLesson!.files[0] || "lecture.pdf"} · Копирование и сохранение недоступны</p>
             </div>
-          ) : isPdfLesson === false && isTextLesson ? (
+          ) : lessonHasAccess && isTextLesson ? (
             /* Старый текстовый контент (обратная совместимость) */
             <div className="glass-strong rounded-2xl p-5 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
               <h2 className="text-base font-bold text-white mb-3">{lessonName}</h2>
               <p className="text-sm text-white/70 leading-relaxed whitespace-pre-line">{realLesson!.content}</p>
             </div>
-          ) : (
+          ) : lessonHasAccess ? (
             /* Статический контент для демо-курсов без конструктора */
             <>
               <div className="rounded-2xl overflow-hidden relative animate-fade-up opacity-0" style={{ aspectRatio: '16/9', background: 'linear-gradient(135deg, #1e293b, #0f172a)', animationFillMode: 'forwards' }}>
@@ -334,21 +376,24 @@ export default function LearningModule({ onBack }: Props) {
                 ))}
               </div>
             </>
-          )}
+          ) : null}
 
-          <div className="flex gap-3 animate-fade-up opacity-0 delay-200" style={{ animationFillMode: 'forwards' }}>
-            {activeLessonIdx > 0 && (
-              <button onClick={() => setActiveLessonIdx(i => i - 1)} className="btn-ghost flex-1 flex items-center justify-center gap-2 text-sm">
-                <Icon name="ArrowLeft" size={16} />Назад
+          {/* Кнопки навигации — только при наличии доступа */}
+          {lessonHasAccess && (
+            <div className="flex gap-3 animate-fade-up opacity-0 delay-200" style={{ animationFillMode: 'forwards' }}>
+              {activeLessonIdx > 0 && (
+                <button onClick={() => setActiveLessonIdx(i => i - 1)} className="btn-ghost flex-1 flex items-center justify-center gap-2 text-sm">
+                  <Icon name="ArrowLeft" size={16} />Назад
+                </button>
+              )}
+              <button
+                onClick={() => { setView("course"); showToast("✅ Урок завершён!"); }}
+                className="btn-primary flex-1 flex items-center justify-center gap-2"
+              >
+                <Icon name="CheckCircle" size={18} />Завершить урок
               </button>
-            )}
-            <button
-              onClick={() => { setView("course"); showToast("✅ Урок завершён!"); }}
-              className="btn-primary flex-1 flex items-center justify-center gap-2"
-            >
-              <Icon name="CheckCircle" size={18} />Завершить урок
-            </button>
-          </div>
+            </div>
+          )}
         </div>
       </div>
     );

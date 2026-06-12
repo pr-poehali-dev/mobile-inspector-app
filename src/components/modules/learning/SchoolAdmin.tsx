@@ -209,7 +209,7 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
     { k: "students", label: "Ученики", icon: "Users" },
     { k: "homework", label: "Проверка ДЗ", icon: "ClipboardCheck", badge: courseHomework.filter(h => h.status === "pending").length },
     { k: "groups", label: "Группы", icon: "CalendarDays" },
-    { k: "enroll", label: "Записи", icon: "UserPlus", badge: courseEnrollments.length },
+    { k: "enroll", label: "Записи", icon: "UserPlus", badge: courseEnrollments.filter(e => !e.status || e.status === "pending").length },
     { k: "analytics", label: "Аналитика", icon: "BarChart3" },
     { k: "settings", label: "Доступ", icon: "Settings" },
   ] as const;
