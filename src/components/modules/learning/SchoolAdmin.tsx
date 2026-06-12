@@ -13,7 +13,8 @@ interface Lesson {
   id: number;
   title: string;
   type: LessonType;
-  content: string;          // текст лекции / описание задания
+  content: string;          // текст лекции (legacy) / data-url PDF / описание задания
+  lectureType?: "pdf" | "text"; // тип лекционного материала (pdf — новый, text — legacy)
   videoUrl?: string;        // YouTube/Vimeo (лекция)
   images: string[];         // изображения для лекции (data-url)
   files: string[];          // прикреплённые файлы
@@ -237,11 +238,35 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
                   if (f.type !== "application/pdf") { showToast("Поддерживается только PDF"); e.target.value = ""; return; }
                   if (f.size > 50 * 1024 * 1024) { showToast("Файл слишком большой — максимум 50 МБ"); e.target.value = ""; return; }
                   const reader = new FileReader();
-                  reader.onload = () => setL({ content: reader.result as string, files: [f.name] });
+                  reader.onload = () => setL({ content: reader.result as string, files: [f.name], lectureType: "pdf" });
                   reader.readAsDataURL(f);
                   e.target.value = "";
                 }}
               />
+              {/* Обратная совместимость: старый текст — предлагаем миграцию */}
+              {L.content && !L.content.startsWith("data:application/pdf") && L.lectureType !== "pdf" && (
+                <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
+                  <div className="flex items-start gap-3">
+                    <Icon name="AlertTriangle" size={18} color="#f59e0b" className="flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-white">Устаревший формат лекции</p>
+                      <p className="text-xs text-white/50 mt-1">Эта лекция содержит текстовый материал. Загрузите PDF-файл, чтобы перевести её в новый формат. Старый текст будет заменён.</p>
+                    </div>
+                  </div>
+                  <div className="text-xs text-white/40 p-3 rounded-lg line-clamp-3" style={{ background: 'rgba(255,255,255,0.04)' }}>{L.content}</div>
+                  <button
+                    onClick={() => { setL({ content: "", files: [], lectureType: undefined }); document.getElementById("lecture-pdf-input")?.click(); }}
+                    className="w-full py-2 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
+                    style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: 'white' }}
+                  >
+                    <Icon name="Upload" size={16} color="white" />Загрузить PDF взамен текста
+                  </button>
+                  <button
+                    onClick={() => setL({ content: "", files: [], lectureType: undefined })}
+                    className="w-full py-1.5 rounded-xl text-xs text-white/40 hover:text-white/60"
+                  >Очистить и начать заново</button>
+                </div>
+              )}
               {L.content && L.content.startsWith("data:application/pdf") ? (
                 <div className="space-y-3">
                   {/* Имя файла + кнопка замены */}
@@ -257,7 +282,7 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
                       style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}
                     >Заменить</button>
                     <button
-                      onClick={() => setL({ content: "", files: [] })}
+                      onClick={() => setL({ content: "", files: [], lectureType: undefined })}
                       className="p-1.5 rounded-lg hover:bg-white/10"
                     ><Icon name="X" size={15} color="rgba(239,68,68,0.7)" /></button>
                   </div>

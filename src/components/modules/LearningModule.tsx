@@ -48,6 +48,13 @@ export default function LearningModule({ onBack }: Props) {
   const [enrollPhone, setEnrollPhone] = useState("");
   const [, setAllEnrollments] = usePersistentState<Enrollment[]>("school_enrollments_all", []);
   const [publishedCourses] = usePersistentState<PublishedCourse[]>("published_courses_all", []);
+  // Для просмотра уроков курса из конструктора — храним ownerId выбранного курса
+  const [selectedCourseOwnerId, setSelectedCourseOwnerId] = useState<number | null>(null);
+  // Читаем уроки конструктора владельца (по ownerId)
+  const [ownerConstructorCourses] = usePersistentState<{ id: number; modules: { id: number; title: string; lessons: { id: number; title: string; type: string; content: string; lectureType?: "pdf" | "text"; files: string[]; videoUrl?: string }[] }[] }[]>(
+    selectedCourseOwnerId ? `school_courses_${selectedCourseOwnerId}` : "__none__",
+    []
+  );
 
   // Объединяем статические курсы + опубликованные курсы школ
   const allCourses = [
@@ -88,8 +95,19 @@ export default function LearningModule({ onBack }: Props) {
   ];
 
   if (view === "lesson" && selectedCourse) {
-    const lessonName = activeLessonIdx === 0 ? "Введение в курс" : activeLessonIdx === 1 ? "Основные понятия" : activeLessonIdx === 2 ? "Практические примеры" : "Итоговые материалы";
+    // Реальный урок из конструктора (если курс из библиотеки школы)
+    const realCourseId = selectedCourse.id - 100000;
+    const realCourse = ownerConstructorCourses.find(c => c.id === realCourseId);
+    const allRealLessons = realCourse ? realCourse.modules.flatMap(m => m.lessons) : [];
+    const realLesson = allRealLessons[activeLessonIdx] || null;
+
+    // Статические данные для курсов без конструктора
+    const lessonName = realLesson?.title || (activeLessonIdx === 0 ? "Введение в курс" : activeLessonIdx === 1 ? "Основные понятия" : activeLessonIdx === 2 ? "Практические примеры" : "Итоговые материалы");
     const lessonText = LESSON_TEXTS[Math.min(activeLessonIdx, LESSON_TEXTS.length - 1)];
+
+    const isPdfLesson = realLesson?.lectureType === "pdf" && realLesson?.content?.startsWith("data:application/pdf");
+    const isTextLesson = realLesson && realLesson.type === "lecture" && !isPdfLesson && realLesson.content;
+
     return (
       <div className="min-h-screen relative z-10 animate-fade-in">
         <ModuleHeader title={`Урок ${activeLessonIdx + 1}`} onBack={() => setView("course")} subtitle={selectedCourse.title} />
@@ -104,39 +122,86 @@ export default function LearningModule({ onBack }: Props) {
                 return (
                   <button key={i} onClick={() => setActiveLessonIdx(i)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left" style={{ background: isCurrent ? 'rgba(59,130,246,0.15)' : 'transparent' }}>
                     <Icon name={done ? "CheckCircle" : isCurrent ? "PlayCircle" : "Circle"} size={14} color={done ? "#10b981" : isCurrent ? "#3b82f6" : "rgba(255,255,255,0.3)"} />
-                    <span className="text-xs flex-1 truncate" style={{ color: isCurrent ? 'white' : 'rgba(255,255,255,0.5)' }}>Урок {i + 1}</span>
-                    <span className="text-xs" style={{ color: done ? '#10b981' : 'rgba(255,255,255,0.3)' }}>{done ? "Просмотрено" : isCurrent ? "Открыт" : "Не открыто"}</span>
+                    <span className="text-xs flex-1 truncate" style={{ color: isCurrent ? 'white' : 'rgba(255,255,255,0.5)' }}>
+                      {allRealLessons[i]?.title || `Урок ${i + 1}`}
+                    </span>
+                    <span className="text-xs" style={{ color: done ? '#10b981' : 'rgba(255,255,255,0.3)' }}>{done ? "Просмотрено" : isCurrent ? "Открыт" : ""}</span>
                   </button>
                 );
               })}
             </div>
           </div>
 
-          {/* Видеоплеер с ускорением */}
-          <div className="rounded-2xl overflow-hidden relative animate-fade-up opacity-0" style={{ aspectRatio: '16/9', background: 'linear-gradient(135deg, #1e293b, #0f172a)', animationFillMode: 'forwards' }}>
-            <div className="absolute inset-0 flex items-center justify-center"><div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.9)' }}><Icon name="Play" size={28} color="white" /></div></div>
-            <div className="absolute bottom-2 right-2 flex gap-1">
-              {[1, 1.5, 2].map(rate => (
-                <button key={rate} onClick={() => { setPlaybackRate(rate); showToast(`Скорость ${rate}x`); }} className="px-2 py-1 rounded-lg text-xs font-medium" style={{ background: playbackRate === rate ? 'rgba(59,130,246,0.9)' : 'rgba(0,0,0,0.6)', color: 'white' }}>{rate}x</button>
-              ))}
-            </div>
-          </div>
-
-          <div className="glass-strong rounded-2xl p-5 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
-            <h2 className="text-base font-bold text-white mb-3">{lessonName}</h2>
-            <p className="text-sm text-white/70 leading-relaxed">{lessonText}</p>
-          </div>
-          <div className="glass rounded-2xl p-4 animate-fade-up opacity-0 delay-100" style={{ animationFillMode: 'forwards' }}>
-            <p className="text-xs text-white/40 uppercase tracking-wider mb-3">Ключевые тезисы</p>
-            {["Изучите материал внимательно", "Сделайте заметки по ключевым моментам", "Ответьте на контрольные вопросы перед переходом к следующему уроку"].map((point, i) => (
-              <div key={i} className="flex items-start gap-2 mb-2">
-                <div className="w-5 h-5 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: 'rgba(59,130,246,0.2)' }}>
-                  <span className="text-xs text-blue-400 font-bold">{i + 1}</span>
-                </div>
-                <p className="text-sm text-white/70">{point}</p>
+          {/* ── PDF-лекция (защищённый просмотр) ── */}
+          {isPdfLesson ? (
+            <div className="glass-strong rounded-2xl p-4 animate-fade-up opacity-0 space-y-3" style={{ animationFillMode: 'forwards' }}>
+              <div className="flex items-center gap-2 mb-1">
+                <Icon name="FileText" size={16} color="#ef4444" />
+                <h2 className="text-base font-bold text-white">{lessonName}</h2>
               </div>
-            ))}
-          </div>
+              {/* Защищённый iframe */}
+              <div
+                style={{ position: 'relative', height: 560, borderRadius: 12, overflow: 'hidden' }}
+                onContextMenu={e => e.preventDefault()}
+              >
+                {/* Прозрачный оверлей — блокирует прямое взаимодействие с PDF */}
+                <div
+                  style={{
+                    position: 'absolute', inset: 0, zIndex: 2,
+                    userSelect: 'none', WebkitUserSelect: 'none',
+                    background: 'transparent',
+                  }}
+                  onContextMenu={e => e.preventDefault()}
+                />
+                {/* Блок печати — при @media print скрывает содержимое */}
+                <style>{`@media print { .pdf-viewer-protected { display: none !important; } }`}</style>
+                <div className="pdf-viewer-protected" style={{ width: '100%', height: '100%' }}>
+                  <embed
+                    src={`${realLesson!.content}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
+                    type="application/pdf"
+                    width="100%"
+                    height="100%"
+                    style={{ display: 'block', pointerEvents: 'none' }}
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-white/30 text-center">Файл: {realLesson!.files[0] || "lecture.pdf"} · Копирование и сохранение недоступны</p>
+            </div>
+          ) : isPdfLesson === false && isTextLesson ? (
+            /* Старый текстовый контент (обратная совместимость) */
+            <div className="glass-strong rounded-2xl p-5 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
+              <h2 className="text-base font-bold text-white mb-3">{lessonName}</h2>
+              <p className="text-sm text-white/70 leading-relaxed whitespace-pre-line">{realLesson!.content}</p>
+            </div>
+          ) : (
+            /* Статический контент для демо-курсов без конструктора */
+            <>
+              <div className="rounded-2xl overflow-hidden relative animate-fade-up opacity-0" style={{ aspectRatio: '16/9', background: 'linear-gradient(135deg, #1e293b, #0f172a)', animationFillMode: 'forwards' }}>
+                <div className="absolute inset-0 flex items-center justify-center"><div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.9)' }}><Icon name="Play" size={28} color="white" /></div></div>
+                <div className="absolute bottom-2 right-2 flex gap-1">
+                  {[1, 1.5, 2].map(rate => (
+                    <button key={rate} onClick={() => { setPlaybackRate(rate); showToast(`Скорость ${rate}x`); }} className="px-2 py-1 rounded-lg text-xs font-medium" style={{ background: playbackRate === rate ? 'rgba(59,130,246,0.9)' : 'rgba(0,0,0,0.6)', color: 'white' }}>{rate}x</button>
+                  ))}
+                </div>
+              </div>
+              <div className="glass-strong rounded-2xl p-5 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
+                <h2 className="text-base font-bold text-white mb-3">{lessonName}</h2>
+                <p className="text-sm text-white/70 leading-relaxed">{lessonText}</p>
+              </div>
+              <div className="glass rounded-2xl p-4 animate-fade-up opacity-0 delay-100" style={{ animationFillMode: 'forwards' }}>
+                <p className="text-xs text-white/40 uppercase tracking-wider mb-3">Ключевые тезисы</p>
+                {["Изучите материал внимательно", "Сделайте заметки по ключевым моментам", "Ответьте на контрольные вопросы перед переходом к следующему уроку"].map((point, i) => (
+                  <div key={i} className="flex items-start gap-2 mb-2">
+                    <div className="w-5 h-5 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: 'rgba(59,130,246,0.2)' }}>
+                      <span className="text-xs text-blue-400 font-bold">{i + 1}</span>
+                    </div>
+                    <p className="text-sm text-white/70">{point}</p>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
           <div className="flex gap-3 animate-fade-up opacity-0 delay-200" style={{ animationFillMode: 'forwards' }}>
             {activeLessonIdx > 0 && (
               <button onClick={() => setActiveLessonIdx(i => i - 1)} className="btn-ghost flex-1 flex items-center justify-center gap-2 text-sm">
@@ -428,7 +493,13 @@ export default function LearningModule({ onBack }: Props) {
       </div>
       <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-3">
         {allCourses.map((course, i) => (
-          <button key={course.id} onClick={() => { setSelectedCourse(course as typeof COURSES[0]); setView("course"); }} className={`w-full text-left glass rounded-2xl overflow-hidden animate-fade-up opacity-0 hover:border-white/20 transition-all`} style={{ animationDelay: `${0.05 + i * 0.07}s`, animationFillMode: 'forwards' }}>
+          <button key={course.id} onClick={() => {
+            setSelectedCourse(course as typeof COURSES[0]);
+            // Для курсов из конструктора сохраняем ownerId (ID смещён на 100000)
+            const pub = publishedCourses.find(p => p.id + 100000 === course.id);
+            setSelectedCourseOwnerId(pub ? pub.ownerId : null);
+            setView("course");
+          }} className={`w-full text-left glass rounded-2xl overflow-hidden animate-fade-up opacity-0 hover:border-white/20 transition-all`} style={{ animationDelay: `${0.05 + i * 0.07}s`, animationFillMode: 'forwards' }}>
             {/* Изображение курса */}
             <div className="h-28 relative" style={{ background: 'linear-gradient(135deg,#1e3a8a,#3b82f6)' }}>
               {course.image && <img src={course.image} alt="" className="w-full h-full object-cover" loading="lazy" />}
