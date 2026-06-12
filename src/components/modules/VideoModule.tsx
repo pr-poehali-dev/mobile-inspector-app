@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import AdminBlockButton from "@/components/AdminBlockButton";
 import { useApp } from "@/context/AppContext";
+import { usePersistentState } from "@/hooks/usePersistentState";
 
 interface Props { onBack: () => void; }
 
@@ -91,6 +92,19 @@ export default function VideoModule({ onBack }: Props) {
   const bannerFileRef = useRef<HTMLInputElement>(null);
   const [requestPhone, setRequestPhone] = useState(currentUser.phone || "");
   const [requestAgreed, setRequestAgreed] = useState(false);
+  const [refCode, setRefCode] = useState("");
+  const [refCodeStatus, setRefCodeStatus] = useState<"idle" | "valid" | "invalid">("idle");
+  const [refCodes] = usePersistentState<{ code: string; active: boolean }[]>("referral_codes", [
+    { code: "PARTNER10", active: true },
+    { code: "PROMO2026", active: true },
+  ]);
+  const discountPct = refCodeStatus === "valid" ? 0.10 : 0;
+  const contentMakerPrice = Math.round(CONTENT_MAKER_PRICE * (1 - discountPct));
+  const checkRefCode = (code: string) => {
+    const t = code.trim().toUpperCase();
+    if (!t) { setRefCodeStatus("idle"); return; }
+    setRefCodeStatus(refCodes.find(r => r.code === t && r.active) ? "valid" : "invalid");
+  };
 
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
   const canAdd = isAdmin || hasRole("content_maker");
@@ -303,19 +317,34 @@ export default function VideoModule({ onBack }: Props) {
           </div>
 
           {/* Стоимость */}
-          <div className="glass rounded-2xl p-4 flex items-center gap-3">
+          <div className="glass rounded-2xl p-4 flex items-center gap-3" style={{ border: refCodeStatus === "valid" ? '1px solid rgba(16,185,129,0.4)' : undefined }}>
             <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(16,185,129,0.15)' }}><Icon name="Wallet" size={20} color="#10b981" /></div>
             <div className="flex-1">
               <p className="text-sm font-semibold text-white">Стоимость роли</p>
               <p className="text-xs text-white/40">Оплата после одобрения заявки</p>
+              {refCodeStatus === "valid" && <p className="text-xs text-green-400 mt-0.5 flex items-center gap-1"><Icon name="Tag" size={11} color="#10b981" />Скидка 10% применена</p>}
             </div>
-            <span className="text-lg font-bold text-green-400">{CONTENT_MAKER_PRICE.toLocaleString("ru-RU")} ₽/год</span>
+            <div className="text-right">
+              {refCodeStatus === "valid" && <p className="text-xs text-white/30 line-through">{CONTENT_MAKER_PRICE.toLocaleString("ru-RU")} ₽</p>}
+              <span className="text-lg font-bold text-green-400">{contentMakerPrice.toLocaleString("ru-RU")} ₽/год</span>
+            </div>
           </div>
 
           {/* Телефон */}
           <div>
             <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Номер телефона для обратной связи *</label>
             <input className="input-field" type="tel" placeholder="+7 (___) ___-__-__" value={requestPhone} onChange={e => setRequestPhone(e.target.value)} />
+          </div>
+
+          {/* Реферальный код */}
+          <div>
+            <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Реферальный код (если есть)</label>
+            <div className="relative">
+              <input className="input-field pr-10" placeholder="Введите промокод для скидки 10%" value={refCode} onChange={e => { setRefCode(e.target.value); checkRefCode(e.target.value); }} />
+              {refCodeStatus !== "idle" && <div className="absolute right-3 top-1/2 -translate-y-1/2"><Icon name={refCodeStatus === "valid" ? "CheckCircle" : "XCircle"} size={18} color={refCodeStatus === "valid" ? "#10b981" : "#ef4444"} /></div>}
+            </div>
+            {refCodeStatus === "valid" && <p className="text-xs text-green-400 mt-1.5 flex items-center gap-1"><Icon name="Check" size={11} color="#10b981" />Код принят — скидка 10% на стоимость роли</p>}
+            {refCodeStatus === "invalid" && <p className="text-xs text-red-400 mt-1.5">Код не найден или недействителен</p>}
           </div>
 
           {/* Юридическая инструкция */}

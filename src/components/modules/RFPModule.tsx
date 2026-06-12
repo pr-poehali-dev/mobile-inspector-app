@@ -124,6 +124,20 @@ export default function RFPModule({ onBack }: Props) {
   const [winnerContactModal, setWinnerContactModal] = useState<InterestNotice | null>(null);
   const [requestPhone, setRequestPhone] = useState(currentUser.phone || "");
   const [requestAgreed, setRequestAgreed] = useState(false);
+  const [refCode, setRefCode] = useState("");
+  const [refCodeStatus, setRefCodeStatus] = useState<"idle" | "valid" | "invalid">("idle");
+  const [refCodes] = usePersistentState<{ code: string; active: boolean }[]>("referral_codes", [
+    { code: "PARTNER10", active: true },
+    { code: "PROMO2026", active: true },
+  ]);
+  const discountPct = refCodeStatus === "valid" ? 0.10 : 0;
+  const execPriceYear  = Math.round(EXECUTOR_PRICE_YEAR  * (1 - discountPct));
+  const execPriceMonth = Math.round(EXECUTOR_PRICE_MONTH * (1 - discountPct));
+  const checkRefCode = (code: string) => {
+    const t = code.trim().toUpperCase();
+    if (!t) { setRefCodeStatus("idle"); return; }
+    setRefCodeStatus(refCodes.find(r => r.code === t && r.active) ? "valid" : "invalid");
+  };
   const [supplierForm, setSupplierForm] = useState<Supplier | null>(null);
   // Окно контакта с выбранным победителем
   const [winnerContact, setWinnerContact] = useState<{ company: string; supplierId: number } | null>(null);
@@ -236,14 +250,31 @@ export default function RFPModule({ onBack }: Props) {
               <div key={i} className="flex items-center gap-3"><div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(139,92,246,0.2)' }}><Icon name="Check" size={11} color="#8b5cf6" /></div><span className="text-sm text-white/70">{item}</span></div>
             ))}
           </div>
-          <div className="glass rounded-2xl p-4 flex items-center gap-3">
+          <div className="glass rounded-2xl p-4 flex items-center gap-3" style={{ border: refCodeStatus === "valid" ? '1px solid rgba(16,185,129,0.4)' : undefined }}>
             <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(16,185,129,0.15)' }}><Icon name="Wallet" size={20} color="#10b981" /></div>
-            <div className="flex-1"><p className="text-sm font-semibold text-white">Стоимость роли</p><p className="text-xs text-white/40">Оплата после одобрения заявки</p></div>
-            <div className="text-right"><p className="text-base font-bold text-green-400">{EXECUTOR_PRICE_YEAR.toLocaleString("ru-RU")} ₽/год</p><p className="text-xs text-white/40">или {EXECUTOR_PRICE_MONTH} ₽/мес</p></div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-white">Стоимость роли</p>
+              <p className="text-xs text-white/40">Оплата после одобрения заявки</p>
+              {refCodeStatus === "valid" && <p className="text-xs text-green-400 mt-0.5 flex items-center gap-1"><Icon name="Tag" size={11} color="#10b981" />Скидка 10% применена</p>}
+            </div>
+            <div className="text-right">
+              {refCodeStatus === "valid" && <p className="text-xs text-white/30 line-through">{EXECUTOR_PRICE_YEAR.toLocaleString("ru-RU")} ₽</p>}
+              <p className="text-base font-bold text-green-400">{execPriceYear.toLocaleString("ru-RU")} ₽/год</p>
+              <p className="text-xs text-white/40">или {execPriceMonth} ₽/мес</p>
+            </div>
           </div>
           <div>
             <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Номер телефона для обратной связи *</label>
             <input className="input-field" type="tel" placeholder="+7 (___) ___-__-__" value={requestPhone} onChange={e => setRequestPhone(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Реферальный код (если есть)</label>
+            <div className="relative">
+              <input className="input-field pr-10" placeholder="Введите промокод для скидки 10%" value={refCode} onChange={e => { setRefCode(e.target.value); checkRefCode(e.target.value); }} />
+              {refCodeStatus !== "idle" && <div className="absolute right-3 top-1/2 -translate-y-1/2"><Icon name={refCodeStatus === "valid" ? "CheckCircle" : "XCircle"} size={18} color={refCodeStatus === "valid" ? "#10b981" : "#ef4444"} /></div>}
+            </div>
+            {refCodeStatus === "valid" && <p className="text-xs text-green-400 mt-1.5 flex items-center gap-1"><Icon name="Check" size={11} color="#10b981" />Код принят — скидка 10% на стоимость роли</p>}
+            {refCodeStatus === "invalid" && <p className="text-xs text-red-400 mt-1.5">Код не найден или недействителен</p>}
           </div>
           <div className="glass rounded-2xl p-4 flex items-start gap-3" style={{ border: '1px solid rgba(245,158,11,0.25)', background: 'rgba(245,158,11,0.08)' }}>
             <Icon name="Info" size={16} color="#f59e0b" className="flex-shrink-0 mt-0.5" />
