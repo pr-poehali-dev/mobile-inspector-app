@@ -2,6 +2,7 @@ import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
+import { useSharedState } from "@/hooks/useSharedState";
 
 interface Props { onBack: () => void; }
 
@@ -10,26 +11,12 @@ interface Topic { id: number; title: string; author: string; time: string; secti
 
 const SECTIONS = ["Все", "Техподдержка", "Общее", "Проекты"];
 
-const TOPICS: Topic[] = [
-  { id: 1, title: "Не работает авторизация через мобильное приложение", author: "Дмитрий Ф.", time: "2 часа назад", section: "Техподдержка", pinned: true, replies: [
-    { id: 1, author: "Поддержка", text: "Проблема зафиксирована, ожидайте исправления в течение 2 часов.", time: "1 час назад" },
-    { id: 2, author: "Дмитрий Ф.", text: "Всё заработало, спасибо!", time: "30 мин назад" },
-  ]},
-  { id: 2, title: "Когда будет добавлена функция экспорта в Excel?", author: "Ольга Н.", time: "5 часов назад", section: "Общее", replies: [
-    { id: 1, author: "Администратор", text: "Функция запланирована на июль 2026. Следите за обновлениями в новостной ленте.", time: "4 часа назад" },
-  ]},
-  { id: 3, title: "Обсуждение проекта реконструкции склада №3", author: "Алексей В.", time: "вчера", section: "Проекты", hasFile: true, replies: [
-    { id: 1, author: "Марина К.", text: "Предлагаю рассмотреть вариант с расширением зоны погрузки.", time: "вчера" },
-    { id: 2, author: "Алексей В.", text: "Хорошая идея, добавил в смету.", time: "вчера" },
-    { id: 3, author: "Сергей П.", text: "Прикладываю обновлённые чертежи.", time: "18 часов назад" },
-  ]},
-  { id: 4, title: "Правила оформления командировочных отчётов", author: "HR-отдел", time: "3 дня назад", section: "Общее", replies: [] },
-];
+
 
 export default function ForumModule({ onBack }: Props) {
   const { isAdmin, currentUser } = useApp();
   const [section, setSection] = useState("Все");
-  const [topics, setTopics] = useState<Topic[]>(TOPICS);
+  const [topics, setTopics] = useSharedState<Topic[]>("forum_topics", []);
   const [selectedTopicId, setSelectedTopicId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState("");
   const [attachedFile, setAttachedFile] = useState<string | null>(null);

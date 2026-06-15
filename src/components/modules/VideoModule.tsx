@@ -47,21 +47,7 @@ const THUMB_COLORS = [
   "linear-gradient(135deg, #7a1b50, #501030)",
 ];
 
-const DEMO_AUTHORS: VideoAuthor[] = [
-  { id: 1, name: "Иван Смирнов", avatar: "ИС", role: "admin" },
-  { id: 2, name: "Анна Козлова", avatar: "АК", role: "content_maker" },
-  { id: 3, name: "Пётр Волков", avatar: "ПВ", role: "content_maker" },
-  { id: 4, name: "Мария Иванова", avatar: "МИ", role: "admin" },
-];
 
-const INITIAL_VIDEOS: VideoItem[] = [
-  { id: 1, title: "Введение в систему промышленной безопасности", description: "Полный обзор основных требований и нормативов в области промышленной безопасности на производстве.", hashtags: ["#промбезопасность", "#инструктаж", "#нормативы"], category: "Промышленная безопасность", author: DEMO_AUTHORS[0], views: 1420, likes: 89, favoritedBy: 34, date: "01.06.2026", duration: "12:34", thumbnail: THUMB_COLORS[0], comments: [{ id: 1, author: "Сергей К.", text: "Очень полезное видео, спасибо!", time: "2 дня назад" }] },
-  { id: 2, title: "Охрана труда на высоте: правила и требования", description: "Детальный разбор требований при работах на высоте, применение СИЗ, страховочные системы.", hashtags: ["#охрана_труда", "#высота", "#сиз", "#инструктаж"], category: "Охрана труда", author: DEMO_AUTHORS[1], views: 876, likes: 52, favoritedBy: 21, date: "30.05.2026", duration: "18:20", thumbnail: THUMB_COLORS[1], comments: [] },
-  { id: 3, title: "Пожарная безопасность: действия при эвакуации", description: "Правила поведения при пожаре, порядок эвакуации из здания, применение первичных средств тушения.", hashtags: ["#пожарная_безопасность", "#эвакуация", "#огнетушитель"], category: "Пожарная безопасность", author: DEMO_AUTHORS[2], views: 2341, likes: 167, favoritedBy: 78, date: "28.05.2026", duration: "08:15", thumbnail: THUMB_COLORS[2], comments: [{ id: 1, author: "Ольга М.", text: "Важная тема для всех.", time: "1 день назад" }, { id: 2, author: "Дмитрий П.", text: "Добавьте про огнетушители подробнее", time: "5 часов назад" }] },
-  { id: 4, title: "Инструктаж по охране труда 2024", description: "Актуальный вводный инструктаж по охране труда для всех категорий работников предприятия.", hashtags: ["#охрана_труда", "#инструктаж_2024", "#от"], category: "Охрана труда", author: DEMO_AUTHORS[3], views: 5120, likes: 312, favoritedBy: 145, date: "25.05.2026", duration: "35:00", thumbnail: THUMB_COLORS[3], comments: [] },
-  { id: 5, title: "Экологическая безопасность на производстве", description: "Нормативы обращения с отходами производства, охрана окружающей среды, отчётность.", hashtags: ["#экология", "#окружающая_среда", "#отходы"], category: "Экологическая безопасность", author: DEMO_AUTHORS[1], views: 643, likes: 41, favoritedBy: 18, date: "22.05.2026", duration: "22:10", thumbnail: THUMB_COLORS[4], comments: [] },
-  { id: 6, title: "Информационная безопасность: защита персональных данных", description: "152-ФЗ в деталях: обработка ПД, защита от утечек, организация работы с персональными данными.", hashtags: ["#инфобез", "#персональные_данные", "#152фз"], category: "Информационная безопасность", author: DEMO_AUTHORS[2], views: 1890, likes: 124, favoritedBy: 56, date: "20.05.2026", duration: "28:45", thumbnail: THUMB_COLORS[5], comments: [] },
-];
 
 type TabType = "all" | "favorites" | "subscribed";
 type ViewType = "feed" | "player" | "channel" | "add" | "request" | "admin_requests" | "studio" | "payment";
@@ -72,7 +58,7 @@ export default function VideoModule({ onBack }: Props) {
   const { currentUser, hasRole, isAdmin, categories, addRoleRequest, roleRequests, resolveRoleRequest, payForRole, paymentServices, toggleSubscription, bumpStat, isContentBlocked } = useApp();
   const VIDEO_CATEGORIES = ["Все", ...(categories.video || [])];
 
-  const [videos, setVideos] = useState<VideoItem[]>(INITIAL_VIDEOS);
+  const [videos, setVideos] = useSharedState<VideoItem[]>("videos_all", []);
   const [tab, setTab] = useState<TabType>("all");
   const [category, setCategory] = useState("Все");
   const [search, setSearch] = useState("");

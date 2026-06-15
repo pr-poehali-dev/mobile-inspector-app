@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import AdminBlockButton from "@/components/AdminBlockButton";
 import { useApp } from "@/context/AppContext";
+import { useSharedState } from "@/hooks/useSharedState";
 
 interface Props { onBack: () => void; }
 
@@ -52,12 +53,7 @@ const BANNERS = [
   "linear-gradient(135deg, #8b5cf6, #ec4899)",
 ];
 
-const INITIAL_NEWS: NewsItem[] = [
-  { id: 1, title: "Плановое техобслуживание серверов 10 июня", text: "В период с 02:00 до 05:00 10 июня будет проводиться плановое обслуживание серверной инфраструктуры. Сервисы будут временно недоступны.", category: "Информационная безопасность", date: "02.06.2026", authorId: 4, authorName: "Мария Иванова", image: IMG_GRADIENTS[0], important: true, status: "published" },
-  { id: 2, title: "Запускаем новый модуль «ИИ Ассистент»", text: "С сегодняшнего дня доступен умный помощник на основе корпоративной базы знаний. Он ответит на вопросы по документам, чек-листам и новостям.", category: "Иное", date: "01.06.2026", authorId: 4, authorName: "Мария Иванова", image: IMG_GRADIENTS[1], important: false, status: "published" },
-  { id: 3, title: "Конференция по безопасности труда — 15 июня", text: "Приглашаем всех сотрудников на ежегодную конференцию по охране труда. Регистрация обязательна. Начало в 10:00 в конференц-зале №2.", category: "Охрана труда", date: "30.05.2026", authorId: 3, authorName: "Пётр Волков", image: IMG_GRADIENTS[2], important: true, status: "published" },
-  { id: 4, title: "Новые требования пожарной безопасности", text: "Роструд обновил нормативные требования к системам пожарной сигнализации. Все объекты должны пройти аудит до 1 сентября 2026 года.", category: "Пожарная безопасность", date: "25.05.2026", authorId: 3, authorName: "Пётр Волков", image: IMG_GRADIENTS[4], important: false, status: "published" },
-];
+
 
 type ViewMode = "list" | "detail" | "add" | "blog" | "blog_settings" | "request";
 
@@ -65,7 +61,7 @@ export default function NewsModule({ onBack }: Props) {
   const { currentUser, users, hasRole, isAdmin, categories, addRoleRequest, bumpStat, isContentBlocked } = useApp();
   const NEWS_CATEGORIES = ["Все", ...(categories.news || [])];
 
-  const [news, setNews] = useState<NewsItem[]>(INITIAL_NEWS);
+  const [news, setNews] = useSharedState<NewsItem[]>("news_all", []);
   const [category, setCategory] = useState("Все");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<ViewMode>("list");

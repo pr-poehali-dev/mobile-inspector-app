@@ -2,18 +2,26 @@ import { useState, useEffect, useRef } from "react";
 import func2url from "../../backend/func2url.json";
 
 const API = (func2url as Record<string, string>)["app-state"];
-const POLL_INTERVAL = 10_000; // 10 секунд
+const POLL_INTERVAL = 10_000;
+const LS_VERSION = "v3"; // увеличить при сбросе кэша
 
-// Глобальный кэш — общий для всех компонентов с одним ключом
+// Очищаем старый кэш браузера при обновлении версии
+(function clearOldCache() {
+  const vk = "ss_cache_version";
+  if (localStorage.getItem(vk) !== LS_VERSION) {
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith("ss_")) toRemove.push(k);
+    }
+    toRemove.forEach(k => localStorage.removeItem(k));
+    localStorage.setItem(vk, LS_VERSION);
+  }
+})();
+
 const memCache: Record<string, unknown> = {};
-
-// Подписчики: key → список setState-функций
 const subscribers: Record<string, Set<(v: unknown) => void>> = {};
-
-// Debounce-таймеры для записи
 const writeTimers: Record<string, ReturnType<typeof setTimeout>> = {};
-
-// Polling-таймеры: один таймер на ключ для всего приложения
 const pollTimers: Record<string, ReturnType<typeof setInterval>> = {};
 const pollRefCount: Record<string, number> = {};
 
@@ -32,19 +40,25 @@ async function fetchRemote(key: string): Promise<unknown> {
   } catch { return null; }
 }
 
+function writeRemote(key: string, value: unknown) {
+  fetch(API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  }).catch(() => {/* ignore */});
+}
+
 function notifySubscribers(key: string, value: unknown) {
   subscribers[key]?.forEach(fn => fn(value));
 }
 
 function startPolling(key: string) {
   pollRefCount[key] = (pollRefCount[key] || 0) + 1;
-  if (pollTimers[key]) return; // уже запущен
+  if (pollTimers[key]) return;
   pollTimers[key] = setInterval(async () => {
     const remote = await fetchRemote(key);
     if (remote === null) return;
-    const current = JSON.stringify(memCache[key]);
-    const incoming = JSON.stringify(remote);
-    if (current !== incoming) {
+    if (JSON.stringify(memCache[key]) !== JSON.stringify(remote)) {
       memCache[key] = remote;
       lsSet(key, remote);
       notifySubscribers(key, remote);
@@ -64,20 +78,18 @@ function saveRemote(key: string, value: unknown) {
   if (writeTimers[key]) clearTimeout(writeTimers[key]);
   writeTimers[key] = setTimeout(() => {
     lsSet(key, value);
-    fetch(API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key, value }),
-    }).catch(() => {/* тихо */});
+    writeRemote(key, value);
   }, 600);
 }
 
 /**
- * useSharedState — данные одинаковы на всех устройствах.
- * • Мгновенный старт из localStorage/памяти
- * • Загрузка с сервера при маунте
- * • Polling каждые 10с — видим изменения других без перезагрузки
- * • Сохранение на сервер при изменении (debounce 600ms)
+ * useSharedState — одинаковые данные на всех устройствах.
+ * - Мгновенно берёт данные из localStorage/памяти
+ * - При маунте загружает с сервера:
+ *     • Если в БД есть → берём их (истина)
+ *     • Если в БД пусто → пишем initial в БД (первый запуск)
+ * - Polling 10с — подхватывает чужие изменения без перезагрузки
+ * - При изменении → сохраняет на сервер (debounce 600ms)
  */
 export function useSharedState<T>(
   key: string,
@@ -92,46 +104,43 @@ export function useSharedState<T>(
 
   const [value, setValueRaw] = useState<T>(getInitial);
   const initialized = useRef(false);
-  const savedRef = useRef(value);
+  const savedRef = useRef<T>(value);
 
-  // Подписываемся на обновления от polling
   useEffect(() => {
     if (!subscribers[key]) subscribers[key] = new Set();
-    const handler = (v: unknown) => {
-      setValueRaw(v as T);
-      savedRef.current = v as T;
-    };
+    const handler = (v: unknown) => { setValueRaw(v as T); savedRef.current = v as T; };
     subscribers[key].add(handler);
     return () => { subscribers[key].delete(handler); };
   }, [key]);
 
-  // Загрузка с сервера + запуск polling
   useEffect(() => {
     startPolling(key);
 
-    // Первичная загрузка
     fetchRemote(key).then(remote => {
       if (remote !== null && remote !== undefined) {
-        const incoming = JSON.stringify(remote);
-        const current = JSON.stringify(memCache[key]);
-        if (incoming !== current) {
+        // В БД есть данные — берём их (перезаписываем local)
+        if (JSON.stringify(memCache[key]) !== JSON.stringify(remote)) {
           memCache[key] = remote;
           lsSet(key, remote);
           setValueRaw(remote as T);
           savedRef.current = remote as T;
         }
+      } else {
+        // В БД пусто — записываем начальные данные (первый запуск)
+        const toSave = memCache[key] !== undefined ? (memCache[key] as T) : initial;
+        memCache[key] = toSave;
+        lsSet(key, toSave);
+        writeRemote(key, toSave);
       }
     });
 
     return () => { stopPolling(key); };
-     
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  // Сохранение при изменении (пропускаем первый рендер)
   useEffect(() => {
     if (!initialized.current) { initialized.current = true; return; }
-    const next = JSON.stringify(value);
-    if (next === JSON.stringify(savedRef.current)) return;
+    if (JSON.stringify(value) === JSON.stringify(savedRef.current)) return;
     savedRef.current = value;
     memCache[key] = value;
     saveRemote(key, value);
@@ -139,10 +148,7 @@ export function useSharedState<T>(
   }, [value]);
 
   const setValue: React.Dispatch<React.SetStateAction<T>> = (action) => {
-    setValueRaw(prev => {
-      const next = typeof action === "function" ? (action as (p: T) => T)(prev) : action;
-      return next;
-    });
+    setValueRaw(prev => typeof action === "function" ? (action as (p: T) => T)(prev) : action);
   };
 
   return [value, setValue];

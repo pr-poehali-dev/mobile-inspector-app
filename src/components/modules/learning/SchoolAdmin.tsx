@@ -105,27 +105,7 @@ const STATUS_META: Record<Student["status"], { label: string; color: string }> =
   completed: { label: "Завершил", color: "#10b981" },
 };
 
-const INITIAL_COURSES: Course[] = [
-  {
-    id: 1, title: "Охрана труда и техника безопасности", published: true, documentName: "Удостоверение о проверке знаний по охране труда", documentHow: "Выдаётся лично или почтой после прохождения 100% курса", certSample: "",
-    modules: [
-      { id: 11, title: "Модуль 1. Введение", lessons: [
-        { id: 111, title: "Что такое охрана труда", type: "lecture", content: "Основные понятия и нормативная база.", videoUrl: "https://youtube.com/watch?v=demo", images: [], files: ["lecture1.pdf"], completion: "Посмотреть до конца", questions: [] },
-        { id: 112, title: "Входной тест", type: "test", content: "Проверка базовых знаний.", images: [], files: [], completion: "Набрать ≥ 60%", questions: [{ id: 1, question: "Что такое инструктаж?", answers: ["Проверка", "Обучение по ТБ", "Медосмотр", "Аудит"], correct: 1 }] },
-      ] },
-    ]
-  },
-];
 
-const INITIAL_STUDENTS: Student[] = [
-  { id: 1, name: "Иван Петров", email: "ivan@mail.ru", role: "student", progress: 75, avgScore: 4.5, status: "in_progress", groupId: null },
-  { id: 2, name: "Анна Козлова", email: "anna@mail.ru", role: "curator", progress: 100, avgScore: 5.0, status: "completed", groupId: null },
-];
-
-const INITIAL_HOMEWORK: Homework[] = [
-  { id: 1, studentName: "Иван Петров", courseTitle: "Охрана труда и техника безопасности", lessonTitle: "Кейс: расследование инцидента", text: "Мой порядок действий: 1) оказать первую помощь...", files: ["ivan_hw.pdf"], grade: null, comment: "", date: "03.06.2026", status: "pending" },
-  { id: 2, studentName: "Мария Иванова", courseTitle: "Охрана труда и техника безопасности", lessonTitle: "Кейс: расследование инцидента", text: "Прикладываю отчёт.", files: ["maria_hw.docx"], grade: 4, comment: "Хорошо, но не хватает деталей.", date: "01.06.2026", status: "graded" },
-];
 
 type Tab = "constructor" | "students" | "homework" | "groups" | "enroll" | "analytics" | "settings";
 
@@ -135,9 +115,9 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
   const { users, currentUser } = useApp();
 
   const [tab, setTab] = useState<Tab>(initialTab || "constructor");
-  const [courses, setCourses] = useSharedState<Course[]>(`school_courses_${currentUser.id}`, INITIAL_COURSES);
-  const [students, setStudents] = useSharedState<Student[]>(`school_students_${currentUser.id}`, INITIAL_STUDENTS);
-  const [homework, setHomework] = useSharedState<Homework[]>(`school_homework_${currentUser.id}`, INITIAL_HOMEWORK);
+  const [courses, setCourses] = useSharedState<Course[]>(`school_courses_${currentUser.id}`, []);
+  const [students, setStudents] = useSharedState<Student[]>(`school_students_${currentUser.id}`, []);
+  const [homework, setHomework] = useSharedState<Homework[]>(`school_homework_${currentUser.id}`, []);
   const [groups, setGroups] = useSharedState<Group[]>(`school_groups_${currentUser.id}`, []);
   const [plans, setPlans] = useSharedState<Lesson_Plan[]>(`school_plans_${currentUser.id}`, []);
   // Записи на курсы — глобальный store (заполняется учениками + управляется владельцем)

@@ -66,24 +66,7 @@ interface Proposal {
 // Базовый рейтинг доверия: 3.5 + 0.1 за завершённый заказ (макс 5.0)
 const trustRating = (completed: number) => Math.min(5, 3.5 + completed * 0.1);
 
-const INITIAL_SUPPLIERS: Supplier[] = [
-  { id: 101, name: "ООО «МебельПро»", about: "Производство и поставка офисной мебели с 2010 года.", permit: "Лицензия на оптовую торговлю мебелью №12345", location: "Москва", contacts: "+7 (495) 111-22-33, info@mebelpro.ru", site: "mebelpro.ru", completedOrders: 13, verified: true },
-  { id: 102, name: "ИП Сидоров А.В.", about: "Частный поставщик, доставка по ЦФО.", permit: "ОГРНИП 316774600012345", location: "Подольск", contacts: "+7 (916) 555-44-33", site: "", completedOrders: 7, verified: false },
-  { id: 103, name: "АО «Мебель Центр»", about: "Крупный поставщик корпоративной мебели.", permit: "Лицензия №77-2024, член СРО", location: "Санкт-Петербург", contacts: "+7 (812) 700-80-90, sales@mc.ru", site: "mebel-center.ru", completedOrders: 14, verified: true },
-];
 
-const INITIAL_RFPS: RFP[] = [
-  { id: 1, title: "Поставка офисной мебели 2026", desc: "Требуется поставка столов, кресел и стеллажей для нового офиса.", category: "Оборудование", location: "Москва, ул. Тверская 1", workTerm: "30 дней", deadline: "2026-06-15", status: "Активен", proposals: 3, ownerId: 0 },
-  { id: 2, title: "Услуги по уборке помещений", desc: "Ежедневная и генеральная уборка трёх офисных зданий.", category: "Услуги", location: "Москва", workTerm: "12 месяцев", deadline: "2026-06-20", status: "Активен", proposals: 1, ownerId: 0 },
-  { id: 3, title: "Закупка серверного оборудования", desc: "Серверы, сетевые коммутаторы и системы хранения данных.", category: "IT", location: "Удалённо", workTerm: "45 дней", deadline: "2026-05-30", status: "Закрыт", proposals: 0, ownerId: 0 },
-];
-
-const INITIAL_PROPOSALS: Proposal[] = [
-  { id: 1001, rfpId: 1, rfpTitle: "Поставка офисной мебели 2026", supplierId: 101, company: "ООО «МебельПро»", price: 850000, delivery: "14 дней", deliveryDays: 14, file: "proposal_mebelpro.pdf", manualRating: null, date: "03.06.2026" },
-  { id: 1002, rfpId: 1, rfpTitle: "Поставка офисной мебели 2026", supplierId: 102, company: "ИП Сидоров А.В.", price: 720000, delivery: "21 день", deliveryDays: 21, file: "proposal_sidorov.pdf", manualRating: null, date: "03.06.2026" },
-  { id: 1003, rfpId: 1, rfpTitle: "Поставка офисной мебели 2026", supplierId: 103, company: "АО «Мебель Центр»", price: 960000, delivery: "7 дней", deliveryDays: 7, file: "proposal_mc.pdf", manualRating: null, date: "03.06.2026" },
-  { id: 1004, rfpId: 2, rfpTitle: "Услуги по уборке помещений", supplierId: 102, company: "ИП Сидоров А.В.", price: 180000, delivery: "ежедневно", deliveryDays: 1, file: "uborka.pdf", manualRating: null, date: "02.06.2026" },
-];
 
 type ViewMode = "list" | "create" | "edit" | "compare" | "upload" | "cabinet" | "request" | "payment" | "supplier" | "supplierEdit" | "chat";
 
@@ -112,9 +95,9 @@ export default function RFPModule({ onBack }: Props) {
   const [chatInput, setChatInput] = useState("");
   const [form, setForm] = useState({ title: "", desc: "", deadline: "", category: "", location: "", workTerm: "", contactPhone: "" });
   const [rfpSearch, setRfpSearch] = useState("");
-  const [rfpList, setRfpList] = useState<RFP[]>(INITIAL_RFPS);
-  const [suppliers, setSuppliers] = useState<Supplier[]>(INITIAL_SUPPLIERS);
-  const [proposals, setProposals] = useState<Proposal[]>(INITIAL_PROPOSALS);
+  const [rfpList, setRfpList] = useSharedState<RFP[]>("rfp_list", []);
+  const [suppliers, setSuppliers] = useSharedState<Supplier[]>("rfp_suppliers", []);
+  const [proposals, setProposals] = useSharedState<Proposal[]>("rfp_proposals", []);
   const [toast, setToast] = useState<string | null>(null);
   const [uploadCompany, setUploadCompany] = useState("");
   const [uploadPrice, setUploadPrice] = useState("");

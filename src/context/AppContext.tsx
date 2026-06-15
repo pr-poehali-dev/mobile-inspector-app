@@ -174,13 +174,7 @@ const DEFAULT_CATEGORIES: Record<string, string[]> = {
   learning: ["IT", "Маркетинг", "Дизайн", "Безопасность", "Менеджмент"],
 };
 
-const INITIAL_USERS: AppUser[] = [
-  { id: 1, phone: "79991112233", name: "Иван Петров", email: "ivan@mail.ru", location: "Москва", avatar: "ИП", roles: ["user"], blocked: false, bannedFromForum: false, subscribers: [2, 3], subscriptions: [4], bio: "", createdAt: "01.01.2026" },
-  { id: 2, phone: "79992223344", name: "Анна Козлова", email: "anna@mail.ru", location: "Санкт-Петербург", avatar: "АК", roles: ["content_maker"], blocked: false, bannedFromForum: false, subscribers: [1, 4], subscriptions: [1], bio: "Эксперт по охране труда. Делюсь обучающими видео.", createdAt: "15.01.2026" },
-  { id: 3, phone: "79993334455", name: "Пётр Волков", email: "petr@mail.ru", location: "Казань", avatar: "ПВ", roles: ["content_maker", "editor"], blocked: false, bannedFromForum: false, subscribers: [1], subscriptions: [2], bio: "Инженер по пожарной безопасности.", createdAt: "20.01.2026" },
-  { id: 4, phone: "79994445566", name: "Мария Иванова", email: "maria@mail.ru", location: "Екатеринбург", avatar: "МИ", roles: ["editor", "documentor"], blocked: false, bannedFromForum: false, subscribers: [1, 2], subscriptions: [1, 2, 3], bio: "Редактор новостной ленты.", createdAt: "10.01.2026" },
-  { id: 5, phone: "79995556677", name: "Сергей Смирнов", email: "sergey@mail.ru", location: "Новосибирск", avatar: "СС", roles: ["user"], blocked: true, bannedFromForum: true, subscribers: [], subscriptions: [], bio: "", createdAt: "05.02.2026" },
-];
+// Начальный список пользователей — пустой (реальные пользователи добавляются при регистрации)
 
 const AppContext = createContext<AppContextType | null>(null);
 
@@ -208,32 +202,13 @@ function useStored<T>(key: string, initial: T | (() => T)): [T, React.Dispatch<R
 }
 
 export function AppProvider({ children, initialUser }: { children: ReactNode; initialUser: AppUser }) {
-  // ── ОБЩИЕ данные (одинаковы на всех устройствах) ────────────────────────
-  const INITIAL_USERS_DEFAULT = (() => {
-    const exists = INITIAL_USERS.find(u => u.phone === initialUser.phone);
-    return exists ? INITIAL_USERS.map(u => u.phone === initialUser.phone ? initialUser : u) : [...INITIAL_USERS, initialUser];
-  })();
-  const [users, setUsers] = useSharedState<AppUser[]>("users", INITIAL_USERS_DEFAULT);
-  const [roleRequests, setRoleRequests] = useSharedState<RoleRequest[]>("roleRequests", [
-    { id: 1, userId: 5, userName: "Сергей Смирнов", phone: "79995556677", role: "content_maker", date: "02.06.2026", status: "pending" },
-  ]);
-  const [roleGrants, setRoleGrants] = useSharedState<RoleGrant[]>("roleGrants", [
-    { userId: 2, role: "content_maker", validUntil: "15.07.2026", grantedAt: "15.06.2026" },
-    { userId: 3, role: "content_maker", validUntil: "20.07.2026", grantedAt: "20.06.2026" },
-    { userId: 3, role: "editor", validUntil: "20.07.2026", grantedAt: "20.06.2026" },
-    { userId: 4, role: "editor", validUntil: "10.07.2026", grantedAt: "10.06.2026" },
-    { userId: 4, role: "documentor", validUntil: "10.07.2026", grantedAt: "10.06.2026" },
-  ]);
+  // ── ОБЩИЕ данные (одинаковы на всех устройствах, хранятся в БД) ────────────
+  const [users, setUsers] = useSharedState<AppUser[]>("users", [initialUser]);
+  const [roleRequests, setRoleRequests] = useSharedState<RoleRequest[]>("roleRequests", []);
+  const [roleGrants, setRoleGrants] = useSharedState<RoleGrant[]>("roleGrants", []);
   const [notifications, setNotifications] = useSharedState<AppNotification[]>("notifications", []);
-  const [paymentServices, setPaymentServices] = useSharedState<PaymentService[]>("paymentServices", [
-    { id: 1, name: "Роль «Контентмейкер» (месяц)", requisites: "ООО «Мобильный Инспектор»\nР/с: 40702810000000012345\nБИК: 044525225\nИНН: 7700000000", qrUrl: "", instruction: "Оплатите по реквизитам или QR-коду. В назначении укажите номер телефона и название роли. Доступ активируется в течение 1 часа.", price: 990, enabled: true },
-    { id: 2, name: "Роль «Редактор» (месяц)", requisites: "ООО «Мобильный Инспектор»\nР/с: 40702810000000012345\nБИК: 044525225", qrUrl: "", instruction: "Оплатите по реквизитам. В назначении укажите телефон.", price: 790, enabled: true },
-    { id: 3, name: "Роль «Документовед» (месяц)", requisites: "ООО «Мобильный Инспектор»\nР/с: 40702810000000012345\nБИК: 044525225", qrUrl: "", instruction: "Оплатите по реквизитам. В назначении укажите телефон.", price: 1290, enabled: false },
-  ]);
-  const [supportMessages, setSupportMessages] = useSharedState<SupportMessage[]>("supportMessages", [
-    { id: 1, userId: 1, userName: "Иван Петров", phone: "79991112233", subject: "Не приходит SMS-код", text: "Здравствуйте! Не могу войти — код подтверждения не приходит на телефон. Что делать?", date: "03.06.2026 10:14", status: "new", replies: [] },
-    { id: 2, userId: 2, userName: "Анна Козлова", phone: "79992223344", subject: "Вопрос по загрузке видео", text: "Какой максимальный размер файла для загрузки видео?", date: "02.06.2026 16:40", status: "answered", replies: [{ from: "admin", text: "Здравствуйте! Максимальный размер — 2 ГБ.", date: "02.06.2026 17:02" }] },
-  ]);
+  const [paymentServices, setPaymentServices] = useSharedState<PaymentService[]>("paymentServices", []);
+  const [supportMessages, setSupportMessages] = useSharedState<SupportMessage[]>("supportMessages", []);
   const [blockedContent, setBlockedContent] = useSharedState<BlockedContentRef[]>("blockedContent", []);
   const [categories, setCategories] = useSharedState<Record<string, string[]>>("categories", DEFAULT_CATEGORIES);
   const [totalVisits, setTotalVisits] = useSharedState<number>("totalVisits", 0);

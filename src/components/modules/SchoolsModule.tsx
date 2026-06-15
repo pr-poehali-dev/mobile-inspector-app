@@ -49,10 +49,7 @@ interface School {
   visible: boolean;
 }
 
-const SEED_SCHOOLS: School[] = [
-  { id: 7001, ownerId: -1, name: "Учебный центр «Безопасность»", banner: "", city: "Москва", address: "ул. Профсоюзная, 5", about: "Аккредитованный центр по охране труда и промбезопасности.", license: "Лицензия №Л035-01298 от 12.01.2024", contacts: "+7 (495) 500-10-20, edu@safety.ru", visible: true, courses: [{ id: 1, title: "Охрана труда", hours: "40 ч", audience: "Специалисты ОТ" }, { id: 2, title: "Пожарно-технический минимум", hours: "16 ч", audience: "Руководители" }] },
-  { id: 7002, ownerId: -1, name: "Академия Профразвития", banner: "", city: "Санкт-Петербург", address: "Лиговский пр., 30", about: "Повышение квалификации и переподготовка кадров.", license: "Лицензия №78Л03-00567", contacts: "+7 (812) 600-20-30", visible: true, courses: [{ id: 1, title: "Управление проектами", hours: "72 ч", audience: "Менеджеры" }] },
-];
+
 
 type ViewMode = "list" | "profile" | "request" | "cabinet" | "constructor" | "editCourse" | "myCourses" | "courseDetail";
 
@@ -61,7 +58,7 @@ interface Props { onBack: () => void; embedded?: boolean; initialView?: ViewMode
 export default function SchoolsModule({ onBack, embedded, initialView }: Props) {
   const { currentUser, hasRole, isAdmin, addRoleRequest, roleRequests } = useApp();
 
-  const [schools, setSchools] = useSharedState<School[]>("schools_list", SEED_SCHOOLS);
+  const [schools, setSchools] = useSharedState<School[]>("schools_list", []);
   const [, setAllEnrollments] = useSharedState<Enrollment[]>("school_enrollments_all", []);
   const [view, setView] = useState<ViewMode>(initialView || "list");
   const [selectedId, setSelectedId] = useState<number | null>(null);

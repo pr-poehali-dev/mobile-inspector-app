@@ -72,12 +72,7 @@ const SAMPLE_TEXT = `Настоящий документ является при
 4.1. Документ вступает в силу с момента подписания.
 4.2. Все изменения оформляются дополнительными соглашениями.`;
 
-const INITIAL_DOCS: DocItem[] = [
-  { id: 1, name: "Договор поставки №245-2026", category: "Договоры", direction: "Входящий", dept: "Отдел закупок", date: "01.06.2026", size: "1.2 МБ", ownerId: 4, ownerName: "Мария Иванова", paid: false, price: 0, content: SAMPLE_TEXT, files: { pdf: "dogovor_245.pdf", docx: "dogovor_245.docx" } },
-  { id: 2, name: "Акт приёмки-передачи оборудования", category: "Акты", direction: "Внутренний", dept: "Склад", date: "30.05.2026", size: "340 КБ", ownerId: 4, ownerName: "Мария Иванова", paid: false, price: 0, content: SAMPLE_TEXT, files: { docx: "akt_priemki.docx", xlsx: "akt_priemki.xlsx" } },
-  { id: 3, name: "Шаблон приказа о назначении ответственных", category: "Приказы", direction: "Внутренний", dept: "Руководство", date: "28.05.2026", size: "450 КБ", ownerId: 4, ownerName: "Мария Иванова", paid: true, price: 500, content: SAMPLE_TEXT, files: { pdf: "prikaz.pdf", docx: "prikaz.docx", xlsx: "prikaz.xlsx" } },
-  { id: 4, name: "Инструкция по охране труда 2024", category: "Инструкции", direction: "Внутренний", dept: "ОТиТБ", date: "25.05.2026", size: "2.1 МБ", ownerId: 4, ownerName: "Мария Иванова", paid: true, price: 1200, content: SAMPLE_TEXT, files: { pdf: "instrukciya_ot.pdf" } },
-];
+
 
 type ViewMode = "list" | "viewer" | "add" | "cabinet" | "request" | "requisites" | "payment" | "purchases";
 
@@ -92,7 +87,7 @@ export default function DocumentsModule({ onBack }: Props) {
   const { currentUser, hasRole, isAdmin, categories, addRoleRequest, roleRequests, payForRole, roleGrants, bumpStat, isContentBlocked, purchaseDoc, isDocPurchased, purchasedDocs } = useApp();
   const CATEGORIES = ["Все", ...(categories.documents || [])];
 
-  const [docs, setDocs] = useState<DocItem[]>(INITIAL_DOCS);
+  const [docs, setDocs] = useSharedState<DocItem[]>("documents_all", []);
   const [catFilter, setCatFilter] = useState("Все");
   const [dirFilter, setDirFilter] = useState("Все");
   const [search, setSearch] = useState("");

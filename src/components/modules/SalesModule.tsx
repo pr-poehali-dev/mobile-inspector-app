@@ -47,10 +47,7 @@ export interface ManagerAppeal {
 const COMMISSION_RATE = 0.10;
 const BASE_SUBSCRIPTION_PRICE = 1990;
 
-const seedEarnings = (): Earning[] => [
-  { id: 1, buyerName: "Алексей М.", subscription: "Подписка PRO (год)", amount: 1990, commission: 199, date: "02.06.2026" },
-  { id: 2, buyerName: "Ольга К.", subscription: "Подписка PRO (месяц)", amount: 490, commission: 49, date: "04.06.2026" },
-];
+
 
 export default function SalesModule({ onBack }: Props) {
   const { currentUser } = useApp();
@@ -61,8 +58,8 @@ export default function SalesModule({ onBack }: Props) {
 
   const storeKey = `sales_data_user_${currentUser.id}`;
   const [data, setData] = useSharedState<SalesData>(storeKey, {
-    visits: 27, purchases: 2, balance: 248, withdrawn: 0,
-    earnings: seedEarnings(), withdrawRequests: [],
+    visits: 0, purchases: 0, balance: 0, withdrawn: 0,
+    earnings: [], withdrawRequests: [],
   });
 
   // Кабинет менеджера
