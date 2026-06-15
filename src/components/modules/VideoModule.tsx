@@ -94,7 +94,7 @@ export default function VideoModule({ onBack }: Props) {
   const [requestAgreed, setRequestAgreed] = useState(false);
   const [refCode, setRefCode] = useState("");
   const [refCodeStatus, setRefCodeStatus] = useState<"idle" | "valid" | "invalid">("idle");
-  const [refCodes] = usePersistentState<{ code: string; active: boolean }[]>("referral_codes", [
+  const [refCodes] = useSharedState<{ code: string; active: boolean }[]>("referral_codes", [
     { code: "PARTNER10", active: true },
     { code: "PROMO2026", active: true },
   ]);

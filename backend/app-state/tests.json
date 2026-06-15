@@ -1,0 +1,29 @@
+{
+  "tests": [
+    {
+      "name": "GET missing key returns null",
+      "method": "GET",
+      "path": "/?key=test_nonexistent_key_xyz",
+      "expectedStatus": 200,
+      "expectedBody": {"key": "test_nonexistent_key_xyz", "value": null},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "POST write key",
+      "method": "POST",
+      "path": "/",
+      "body": {"key": "test_ping", "value": [1, 2, 3]},
+      "expectedStatus": 200,
+      "expectedBody": {"ok": true},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "GET read back written key",
+      "method": "GET",
+      "path": "/?key=test_ping",
+      "expectedStatus": 200,
+      "expectedBody": {"key": "test_ping"},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

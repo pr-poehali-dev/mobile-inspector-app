@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
+import { useSharedState } from "@/hooks/useSharedState";
 
 export type UserRole = "user" | "admin" | "content_maker" | "editor" | "documentor" | "executor" | "school" | "guest";
 export type ThemeMode = "dark" | "light" | "brand";
@@ -207,57 +208,61 @@ function useStored<T>(key: string, initial: T | (() => T)): [T, React.Dispatch<R
 }
 
 export function AppProvider({ children, initialUser }: { children: ReactNode; initialUser: AppUser }) {
-  // Пользователи: восстанавливаем из localStorage, затем гарантируем наличие текущего (вошедшего)
-  const [users, setUsers] = useStored<AppUser[]>("users", () => {
+  // ── ОБЩИЕ данные (одинаковы на всех устройствах) ────────────────────────
+  const INITIAL_USERS_DEFAULT = (() => {
     const exists = INITIAL_USERS.find(u => u.phone === initialUser.phone);
     return exists ? INITIAL_USERS.map(u => u.phone === initialUser.phone ? initialUser : u) : [...INITIAL_USERS, initialUser];
-  });
-  // currentUser инициализируем из сохранённого списка по телефону (восстановление прогресса)
-  const [currentUser, setCurrentUserState] = useState<AppUser>(() => {
-    const stored = loadStored<AppUser[]>("users", []);
-    return stored.find(u => u.phone === initialUser.phone) || initialUser;
-  });
-  // При входе синхронизируем текущего пользователя со списком (по телефону) — без потери сохранённого прогресса
-  useEffect(() => {
-    setUsers(prev => {
-      const found = prev.find(u => u.phone === initialUser.phone);
-      if (found) { setCurrentUserState(found); return prev; }
-      const created = { ...initialUser, id: Math.max(0, ...prev.map(u => u.id)) + 1 };
-      setCurrentUserState(created);
-      return [...prev, created];
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialUser.phone]);
-  const [roleRequests, setRoleRequests] = useStored<RoleRequest[]>("roleRequests", [
+  })();
+  const [users, setUsers, usersLoading] = useSharedState<AppUser[]>("users", INITIAL_USERS_DEFAULT);
+  const [roleRequests, setRoleRequests] = useSharedState<RoleRequest[]>("roleRequests", [
     { id: 1, userId: 5, userName: "Сергей Смирнов", phone: "79995556677", role: "content_maker", date: "02.06.2026", status: "pending" },
   ]);
-  const [roleGrants, setRoleGrants] = useStored<RoleGrant[]>("roleGrants", [
+  const [roleGrants, setRoleGrants] = useSharedState<RoleGrant[]>("roleGrants", [
     { userId: 2, role: "content_maker", validUntil: "15.07.2026", grantedAt: "15.06.2026" },
     { userId: 3, role: "content_maker", validUntil: "20.07.2026", grantedAt: "20.06.2026" },
     { userId: 3, role: "editor", validUntil: "20.07.2026", grantedAt: "20.06.2026" },
     { userId: 4, role: "editor", validUntil: "10.07.2026", grantedAt: "10.06.2026" },
     { userId: 4, role: "documentor", validUntil: "10.07.2026", grantedAt: "10.06.2026" },
   ]);
-  const [notifications, setNotifications] = useStored<AppNotification[]>("notifications", []);
-  const [paymentServices, setPaymentServices] = useStored<PaymentService[]>("paymentServices", [
+  const [notifications, setNotifications] = useSharedState<AppNotification[]>("notifications", []);
+  const [paymentServices, setPaymentServices] = useSharedState<PaymentService[]>("paymentServices", [
     { id: 1, name: "Роль «Контентмейкер» (месяц)", requisites: "ООО «Мобильный Инспектор»\nР/с: 40702810000000012345\nБИК: 044525225\nИНН: 7700000000", qrUrl: "", instruction: "Оплатите по реквизитам или QR-коду. В назначении укажите номер телефона и название роли. Доступ активируется в течение 1 часа.", price: 990, enabled: true },
     { id: 2, name: "Роль «Редактор» (месяц)", requisites: "ООО «Мобильный Инспектор»\nР/с: 40702810000000012345\nБИК: 044525225", qrUrl: "", instruction: "Оплатите по реквизитам. В назначении укажите телефон.", price: 790, enabled: true },
     { id: 3, name: "Роль «Документовед» (месяц)", requisites: "ООО «Мобильный Инспектор»\nР/с: 40702810000000012345\nБИК: 044525225", qrUrl: "", instruction: "Оплатите по реквизитам. В назначении укажите телефон.", price: 1290, enabled: false },
   ]);
-  const [supportMessages, setSupportMessages] = useStored<SupportMessage[]>("supportMessages", [
+  const [supportMessages, setSupportMessages] = useSharedState<SupportMessage[]>("supportMessages", [
     { id: 1, userId: 1, userName: "Иван Петров", phone: "79991112233", subject: "Не приходит SMS-код", text: "Здравствуйте! Не могу войти — код подтверждения не приходит на телефон. Что делать?", date: "03.06.2026 10:14", status: "new", replies: [] },
     { id: 2, userId: 2, userName: "Анна Козлова", phone: "79992223344", subject: "Вопрос по загрузке видео", text: "Какой максимальный размер файла для загрузки видео?", date: "02.06.2026 16:40", status: "answered", replies: [{ from: "admin", text: "Здравствуйте! Максимальный размер — 2 ГБ.", date: "02.06.2026 17:02" }] },
   ]);
-  const [blockedContent, setBlockedContent] = useStored<BlockedContentRef[]>("blockedContent", []);
-  const [purchasedDocs, setPurchasedDocs] = useStored<number[]>("purchasedDocs", []);
-  const [myStats, setMyStats] = useStored<AppStats>("myStats", { videos: 0, news: 0, documents: 0, courses: 0, tickets: 0, checklists: 0 });
-  const [categories, setCategories] = useStored<Record<string, string[]>>("categories", DEFAULT_CATEGORIES);
-  const [theme, setThemeState] = useStored<ThemeMode>("theme", "dark");
-  const [lang, setLang] = useStored<Lang>("lang", "ru");
-  // Реальный счётчик посещений — увеличивается один раз за сессию приложения
-  const [totalVisits, setTotalVisits] = useStored<number>("totalVisits", 0);
+  const [blockedContent, setBlockedContent] = useSharedState<BlockedContentRef[]>("blockedContent", []);
+  const [categories, setCategories] = useSharedState<Record<string, string[]>>("categories", DEFAULT_CATEGORIES);
+  const [totalVisits, setTotalVisits] = useSharedState<number>("totalVisits", 0);
+
+  // ── ЛОКАЛЬНЫЕ данные (у каждого пользователя свои) ───────────────────────
+  const [purchasedDocs, setPurchasedDocs] = useStored<number[]>(`purchasedDocs_${initialUser.id}`, []);
+  const [myStats, setMyStats] = useStored<AppStats>(`myStats_${initialUser.id}`, { videos: 0, news: 0, documents: 0, courses: 0, tickets: 0, checklists: 0 });
+  const [theme, setThemeState] = useStored<ThemeMode>(`theme_${initialUser.id}`, "dark");
+  const [lang, setLang] = useStored<Lang>(`lang_${initialUser.id}`, "ru");
+
+  // currentUser — берём из общего списка пользователей (по телефону)
+  const [currentUser, setCurrentUserState] = useState<AppUser>(initialUser);
   useEffect(() => {
-    setTotalVisits(v => v + 1);
+    if (usersLoading) return;
+    const found = users.find(u => u.phone === initialUser.phone);
+    if (found) {
+      setCurrentUserState(found);
+    } else {
+      // Нового пользователя добавляем в общий список
+      const created = { ...initialUser, id: Math.max(0, ...users.map(u => u.id)) + 1 };
+      setCurrentUserState(created);
+      setUsers(prev => [...prev, created]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usersLoading, initialUser.phone]);
+
+  // Счётчик посещений — один раз за сессию
+  useEffect(() => {
+    setTotalVisits(v => (v as number) + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

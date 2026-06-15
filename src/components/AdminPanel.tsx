@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp, UserRole, PaymentService } from "@/context/AppContext";
 import { usePersistentState } from "@/hooks/usePersistentState";
+import { useSharedState } from "@/hooks/useSharedState";
 
 interface Props { onBack: () => void; }
 
@@ -59,7 +60,7 @@ export default function AdminPanel({ onBack }: Props) {
   } = useApp();
 
   // Обращения от менеджеров (тот же ключ что в SalesModule)
-  const [managerAppeals, setManagerAppeals] = usePersistentState<ManagerAppeal[]>("manager_appeals", []);
+  const [managerAppeals, setManagerAppeals] = useSharedState<ManagerAppeal[]>("manager_appeals", []);
   const newAppealsCount = managerAppeals.filter(a => a.status === "Новое").length;
 
   const [tab, setTab] = useState<Tab>("stats");

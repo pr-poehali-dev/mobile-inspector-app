@@ -4,6 +4,7 @@ import ModuleHeader from "@/components/ModuleHeader";
 import AdminBlockButton from "@/components/AdminBlockButton";
 import { useApp } from "@/context/AppContext";
 import { usePersistentState } from "@/hooks/usePersistentState";
+import { useSharedState } from "@/hooks/useSharedState";
 
 // Заявка на покупку документа (ожидает подтверждения продавца)
 interface DocPaymentRequest {
@@ -111,7 +112,7 @@ export default function DocumentsModule({ onBack }: Props) {
   const [refCodeStatus, setRefCodeStatus] = useState<"idle" | "valid" | "invalid">("idle");
 
   // Список действующих реферальных кодов (shared store)
-  const [refCodes] = usePersistentState<{ code: string; active: boolean }[]>("referral_codes", [
+  const [refCodes] = useSharedState<{ code: string; active: boolean }[]>("referral_codes", [
     { code: "PARTNER10", active: true },
     { code: "PROMO2026", active: true },
   ]);
@@ -128,7 +129,7 @@ export default function DocumentsModule({ onBack }: Props) {
   };
 
   // Система оплаты с чеком — общий список заявок
-  const [paymentRequests, setPaymentRequests] = usePersistentState<DocPaymentRequest[]>("doc_payment_requests", []);
+  const [paymentRequests, setPaymentRequests] = useSharedState<DocPaymentRequest[]>("doc_payment_requests", []);
   // Модалка покупки
   const [buyModal, setBuyModal] = useState<DocItem | null>(null);
   const [receiptImage, setReceiptImage] = useState("");

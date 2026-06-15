@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
 import { usePersistentState } from "@/hooks/usePersistentState";
+import { useSharedState } from "@/hooks/useSharedState";
 import SchoolsModule from "./SchoolsModule";
 import type { PublishedCourse } from "./SchoolsModule";
 
@@ -46,13 +47,13 @@ export default function LearningModule({ onBack }: Props) {
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [enrollFio, setEnrollFio] = useState("");
   const [enrollPhone, setEnrollPhone] = useState("");
-  const [allEnrollments, setAllEnrollments] = usePersistentState<Enrollment[]>("school_enrollments_all", []);
+  const [allEnrollments, setAllEnrollments] = useSharedState<Enrollment[]>("school_enrollments_all", []);
 
   // Мои заявки (по userId или по fio — для обратной совместимости со старыми записями без userId)
   const myEnrollments = allEnrollments.filter(e => e.userId === currentUser.id);
   // Одобренные курсы — IDs курсов, на которые ученик получил доступ
   const approvedCourseIds = new Set(myEnrollments.filter(e => e.status === "approved").map(e => e.courseId));
-  const [publishedCourses] = usePersistentState<PublishedCourse[]>("published_courses_all", []);
+  const [publishedCourses] = useSharedState<PublishedCourse[]>("published_courses_all", []);
   // Для просмотра уроков курса из конструктора — храним ownerId выбранного курса
   const [selectedCourseOwnerId, setSelectedCourseOwnerId] = useState<number | null>(null);
   // Читаем уроки конструктора владельца (по ownerId)

@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
 import { usePersistentState } from "@/hooks/usePersistentState";
+import { useSharedState } from "@/hooks/useSharedState";
 
 // Сообщение чата между заказчиком и поставщиком
 interface RfpChatMessage { id: number; rfpId: number; supplierId: number; fromUserId: number; text: string; date: string; }
@@ -106,8 +107,8 @@ export default function RFPModule({ onBack }: Props) {
   const [editingRfp, setEditingRfp] = useState<RFP | null>(null);
   const [viewedSupplierId, setViewedSupplierId] = useState<number | null>(null);
   // Чат заказчик↔поставщик и уведомления о заинтересованности (сохраняются)
-  const [chatMessages, setChatMessages] = usePersistentState<RfpChatMessage[]>("rfp_chats", []);
-  const [interestNotices, setInterestNotices] = usePersistentState<InterestNotice[]>("rfp_interests", []);
+  const [chatMessages, setChatMessages] = useSharedState<RfpChatMessage[]>("rfp_chats", []);
+  const [interestNotices, setInterestNotices] = useSharedState<InterestNotice[]>("rfp_interests", []);
   const [chatPeer, setChatPeer] = useState<{ rfpId: number; supplierId: number; company: string } | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [form, setForm] = useState({ title: "", desc: "", deadline: "", category: "", location: "", workTerm: "", contactPhone: "" });
@@ -126,7 +127,7 @@ export default function RFPModule({ onBack }: Props) {
   const [requestAgreed, setRequestAgreed] = useState(false);
   const [refCode, setRefCode] = useState("");
   const [refCodeStatus, setRefCodeStatus] = useState<"idle" | "valid" | "invalid">("idle");
-  const [refCodes] = usePersistentState<{ code: string; active: boolean }[]>("referral_codes", [
+  const [refCodes] = useSharedState<{ code: string; active: boolean }[]>("referral_codes", [
     { code: "PARTNER10", active: true },
     { code: "PROMO2026", active: true },
   ]);

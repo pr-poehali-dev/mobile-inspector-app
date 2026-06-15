@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
 import { usePersistentState } from "@/hooks/usePersistentState";
+import { useSharedState } from "@/hooks/useSharedState";
 
 interface Props { onBack: () => void; }
 
@@ -56,7 +57,7 @@ type ViewMode = "list" | "profile" | "request" | "payment" | "dashboard" | "edit
 export default function ServicesModule({ onBack }: Props) {
   const { currentUser, hasRole, isAdmin, addRoleRequest, roleRequests, payForRole, roleGrants } = useApp();
 
-  const [executors, setExecutors] = usePersistentState<Executor[]>("marketplace_executors", SEED_EXECUTORS);
+  const [executors, setExecutors] = useSharedState<Executor[]>("marketplace_executors", SEED_EXECUTORS);
   const [view, setView] = useState<ViewMode>("list");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -68,7 +69,7 @@ export default function ServicesModule({ onBack }: Props) {
   const [requestAgreed, setRequestAgreed] = useState(false);
   const [refCode, setRefCode] = useState("");
   const [refCodeStatus, setRefCodeStatus] = useState<"idle" | "valid" | "invalid">("idle");
-  const [refCodes] = usePersistentState<{ code: string; active: boolean }[]>("referral_codes", [
+  const [refCodes] = useSharedState<{ code: string; active: boolean }[]>("referral_codes", [
     { code: "PARTNER10", active: true },
     { code: "PROMO2026", active: true },
   ]);

@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
 import { usePersistentState } from "@/hooks/usePersistentState";
+import { useSharedState } from "@/hooks/useSharedState";
 import SchoolAdmin from "./learning/SchoolAdmin";
 
 // Типы из SchoolAdmin (дублируем минимум для чтения)
@@ -61,8 +62,8 @@ interface Props { onBack: () => void; embedded?: boolean; initialView?: ViewMode
 export default function SchoolsModule({ onBack, embedded, initialView }: Props) {
   const { currentUser, hasRole, isAdmin, addRoleRequest, roleRequests } = useApp();
 
-  const [schools, setSchools] = usePersistentState<School[]>("schools_list", SEED_SCHOOLS);
-  const [, setAllEnrollments] = usePersistentState<Enrollment[]>("school_enrollments_all", []);
+  const [schools, setSchools] = useSharedState<School[]>("schools_list", SEED_SCHOOLS);
+  const [, setAllEnrollments] = useSharedState<Enrollment[]>("school_enrollments_all", []);
   const [view, setView] = useState<ViewMode>(initialView || "list");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -71,7 +72,7 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
   const [requestAgreed, setRequestAgreed] = useState(false);
   const [refCode, setRefCode] = useState("");
   const [refCodeStatus, setRefCodeStatus] = useState<"idle" | "valid" | "invalid">("idle");
-  const [refCodes] = usePersistentState<{ code: string; active: boolean }[]>("referral_codes", [
+  const [refCodes] = useSharedState<{ code: string; active: boolean }[]>("referral_codes", [
     { code: "PARTNER10", active: true },
     { code: "PROMO2026", active: true },
   ]);
@@ -90,7 +91,7 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
   // Курсы из конструктора SchoolAdmin (тот же ключ хранилища)
   const [constructorCourses, setConstructorCourses] = usePersistentState<ConstructorCourse[]>(`school_courses_${currentUser.id}`, []);
   // Глобальный store опубликованных курсов (читается в LearningModule)
-  const [publishedCourses, setPublishedCourses] = usePersistentState<PublishedCourse[]>("published_courses_all", []);
+  const [publishedCourses, setPublishedCourses] = useSharedState<PublishedCourse[]>("published_courses_all", []);
   const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
   const [courseDetailTab, setCourseDetailTab] = useState<"students" | "homework" | "groups" | "enroll" | "analytics" | "access">("students");
   const [pricingCourseId, setPricingCourseId] = useState<number | null>(null);

@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
 import { usePersistentState } from "@/hooks/usePersistentState";
+import { useSharedState } from "@/hooks/useSharedState";
 
 interface Props { onBack: () => void; }
 
@@ -71,7 +72,7 @@ export default function SalesModule({ onBack }: Props) {
     { name: currentUser.name, photo: "", requisites: "", phone: currentUser.phone || "" }
   );
   // Обращения к администрации — общий стор (все менеджеры)
-  const [managerAppeals, setManagerAppeals] = usePersistentState<ManagerAppeal[]>("manager_appeals", []);
+  const [managerAppeals, setManagerAppeals] = useSharedState<ManagerAppeal[]>("manager_appeals", []);
 
   const [view, setView] = useState<"main" | "cabinet" | "appeal">("main");
   const [copied, setCopied] = useState(false);

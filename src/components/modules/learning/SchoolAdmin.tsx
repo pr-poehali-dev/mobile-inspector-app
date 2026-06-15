@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
 import { usePersistentState } from "@/hooks/usePersistentState";
+import { useSharedState } from "@/hooks/useSharedState";
 
 // ── Типы конструктора курсов ──
 type LessonType = "lecture" | "test" | "assignment" | "webinar";
@@ -141,7 +142,7 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
   const [groups, setGroups] = usePersistentState<Group[]>(`school_groups_${currentUser.id}`, []);
   const [plans, setPlans] = usePersistentState<Lesson_Plan[]>(`school_plans_${currentUser.id}`, []);
   // Записи на курсы — глобальный store (заполняется учениками + управляется владельцем)
-  const [enrollments, setEnrollments] = usePersistentState<Enrollment[]>(`school_enrollments_all`, []);
+  const [enrollments, setEnrollments] = useSharedState<Enrollment[]>("school_enrollments_all", []);
 
   // Если передан initialCourseId — используем его, иначе первый курс
   const resolvedCourseId = initialCourseId && courses.find(c => c.id === initialCourseId) ? initialCourseId : courses[0]?.id || 0;
