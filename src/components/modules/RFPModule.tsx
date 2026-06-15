@@ -2,7 +2,6 @@ import { useState, useRef, useMemo } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
-import { usePersistentState } from "@/hooks/usePersistentState";
 import { useSharedState } from "@/hooks/useSharedState";
 
 // Сообщение чата между заказчиком и поставщиком

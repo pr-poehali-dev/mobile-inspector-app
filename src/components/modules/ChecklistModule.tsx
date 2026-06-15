@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
-import { usePersistentState } from "@/hooks/usePersistentState";
+import { useSharedState } from "@/hooks/useSharedState";
 import {
   AnswerValue, ChecklistData, Area, Sphere, ViewMode, QuestionState, HistoryRecord, INITIAL_SPHERES,
 } from "./checklist/data";
@@ -31,7 +31,7 @@ export default function ChecklistModule({ onBack }: Props) {
   const [objectName, setObjectName] = useState("");
   const [pendingChecklist, setPendingChecklist] = useState<ChecklistData | null>(null);
   // История проверок сохраняется в профиле пользователя (по его id)
-  const [history, setHistory] = usePersistentState<HistoryRecord[]>(`checklist_history_${currentUser?.id ?? "guest"}`, []);
+  const [history, setHistory] = useSharedState<HistoryRecord[]>(`checklist_history_${currentUser?.id ?? "guest"}`, []);
   const [historyRecord, setHistoryRecord] = useState<HistoryRecord | null>(null);
   const photoQIdRef = useRef<number | null>(null);
   const photoFileRef = useRef<HTMLInputElement>(null);

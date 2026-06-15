@@ -2,7 +2,6 @@ import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
-import { usePersistentState } from "@/hooks/usePersistentState";
 import { useSharedState } from "@/hooks/useSharedState";
 import SchoolsModule from "./SchoolsModule";
 import type { PublishedCourse } from "./SchoolsModule";
@@ -57,7 +56,7 @@ export default function LearningModule({ onBack }: Props) {
   // Для просмотра уроков курса из конструктора — храним ownerId выбранного курса
   const [selectedCourseOwnerId, setSelectedCourseOwnerId] = useState<number | null>(null);
   // Читаем уроки конструктора владельца (по ownerId)
-  const [ownerConstructorCourses] = usePersistentState<{ id: number; modules: { id: number; title: string; lessons: { id: number; title: string; type: string; content: string; lectureType?: "pdf" | "text"; files: string[]; videoUrl?: string }[] }[] }[]>(
+  const [ownerConstructorCourses] = useSharedState<{ id: number; modules: { id: number; title: string; lessons: { id: number; title: string; type: string; content: string; lectureType?: "pdf" | "text"; files: string[]; videoUrl?: string }[] }[] }[]>(
     selectedCourseOwnerId ? `school_courses_${selectedCourseOwnerId}` : "__none__",
     []
   );

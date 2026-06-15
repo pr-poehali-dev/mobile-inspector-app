@@ -2,7 +2,6 @@ import { useState, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
-import { usePersistentState } from "@/hooks/usePersistentState";
 import { useSharedState } from "@/hooks/useSharedState";
 import SchoolAdmin from "./learning/SchoolAdmin";
 
@@ -89,7 +88,7 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
   const [enrollPhone, setEnrollPhone] = useState("");
 
   // Курсы из конструктора SchoolAdmin (тот же ключ хранилища)
-  const [constructorCourses, setConstructorCourses] = usePersistentState<ConstructorCourse[]>(`school_courses_${currentUser.id}`, []);
+  const [constructorCourses, setConstructorCourses] = useSharedState<ConstructorCourse[]>(`school_courses_${currentUser.id}`, []);
   // Глобальный store опубликованных курсов (читается в LearningModule)
   const [publishedCourses, setPublishedCourses] = useSharedState<PublishedCourse[]>("published_courses_all", []);
   const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);

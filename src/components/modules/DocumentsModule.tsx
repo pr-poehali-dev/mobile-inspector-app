@@ -3,7 +3,6 @@ import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import AdminBlockButton from "@/components/AdminBlockButton";
 import { useApp } from "@/context/AppContext";
-import { usePersistentState } from "@/hooks/usePersistentState";
 import { useSharedState } from "@/hooks/useSharedState";
 
 // Заявка на покупку документа (ожидает подтверждения продавца)

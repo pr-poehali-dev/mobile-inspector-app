@@ -213,7 +213,7 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
     const exists = INITIAL_USERS.find(u => u.phone === initialUser.phone);
     return exists ? INITIAL_USERS.map(u => u.phone === initialUser.phone ? initialUser : u) : [...INITIAL_USERS, initialUser];
   })();
-  const [users, setUsers, usersLoading] = useSharedState<AppUser[]>("users", INITIAL_USERS_DEFAULT);
+  const [users, setUsers] = useSharedState<AppUser[]>("users", INITIAL_USERS_DEFAULT);
   const [roleRequests, setRoleRequests] = useSharedState<RoleRequest[]>("roleRequests", [
     { id: 1, userId: 5, userName: "Сергей Смирнов", phone: "79995556677", role: "content_maker", date: "02.06.2026", status: "pending" },
   ]);
@@ -247,18 +247,17 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
   // currentUser — берём из общего списка пользователей (по телефону)
   const [currentUser, setCurrentUserState] = useState<AppUser>(initialUser);
   useEffect(() => {
-    if (usersLoading) return;
     const found = users.find(u => u.phone === initialUser.phone);
     if (found) {
       setCurrentUserState(found);
-    } else {
+    } else if (users.length > 0) {
       // Нового пользователя добавляем в общий список
       const created = { ...initialUser, id: Math.max(0, ...users.map(u => u.id)) + 1 };
       setCurrentUserState(created);
       setUsers(prev => [...prev, created]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usersLoading, initialUser.phone]);
+  }, [users, initialUser.phone]);
 
   // Счётчик посещений — один раз за сессию
   useEffect(() => {

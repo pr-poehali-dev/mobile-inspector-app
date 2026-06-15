@@ -2,7 +2,6 @@ import { useState, useMemo, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
-import { usePersistentState } from "@/hooks/usePersistentState";
 import { useSharedState } from "@/hooks/useSharedState";
 
 interface Props { onBack: () => void; }

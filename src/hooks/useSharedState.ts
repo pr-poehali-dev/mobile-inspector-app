@@ -1,74 +1,87 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import func2url from "../../backend/func2url.json";
 
 const API = (func2url as Record<string, string>)["app-state"];
 
-// Очередь записи: debounce 800ms, чтобы не флудить запросами
-const writeTimers: Record<string, ReturnType<typeof setTimeout>> = {};
-const WRITE_DEBOUNCE = 800;
+// Глобальный кэш в памяти — чтобы несколько компонентов с одним ключом не дублировали запросы
+const memCache: Record<string, unknown> = {};
+const pendingFetches: Record<string, Promise<unknown>> = {};
 
-async function remoteGet(key: string): Promise<unknown> {
-  const res = await fetch(`${API}?key=${encodeURIComponent(key)}`);
-  const data = await res.json();
-  return data.value ?? null;
+// Debounce-таймеры для записи
+const writeTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+
+function lsGet(key: string): unknown {
+  try { const r = localStorage.getItem("ss_" + key); return r ? JSON.parse(r) : null; } catch { return null; }
+}
+function lsSet(key: string, v: unknown) {
+  try { localStorage.setItem("ss_" + key, JSON.stringify(v)); } catch { /* ignore */ }
 }
 
-async function remoteSet(key: string, value: unknown): Promise<void> {
-  await fetch(API, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ key, value }),
-  });
+function fetchRemote(key: string): Promise<unknown> {
+  if (pendingFetches[key]) return pendingFetches[key];
+  const p = fetch(`${API}?key=${encodeURIComponent(key)}`)
+    .then(r => r.json())
+    .then(d => { const v = d.value ?? null; if (v !== null) { memCache[key] = v; lsSet(key, v); } return v; })
+    .catch(() => null)
+    .finally(() => { delete pendingFetches[key]; });
+  pendingFetches[key] = p;
+  return p;
+}
+
+function saveRemote(key: string, value: unknown) {
+  if (writeTimers[key]) clearTimeout(writeTimers[key]);
+  writeTimers[key] = setTimeout(() => {
+    lsSet(key, value); // сразу в кэш
+    fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, value }),
+    }).catch(() => {/* не падаем */});
+  }, 600);
 }
 
 /**
- * useSharedState — как useState, но данные хранятся на сервере (одинаково на всех устройствах).
- * При первом рендере грузит с сервера, при каждом изменении — сохраняет (с debounce 800ms).
- * Пока данные грузятся — показывает initial (fallback).
+ * useSharedState — данные одинаковы на всех устройствах.
+ * 1) Сразу отдаёт данные из localStorage (instant)
+ * 2) Догружает с сервера и обновляет
+ * 3) При изменении — сохраняет на сервер (debounce 600ms)
  */
 export function useSharedState<T>(
   key: string,
   initial: T
-): [T, React.Dispatch<React.SetStateAction<T>>, boolean] {
-  const [value, setValueRaw] = useState<T>(initial);
-  const [loading, setLoading] = useState(true);
-  const isFirstLoad = useRef(true);
+): [T, React.Dispatch<React.SetStateAction<T>>] {
+  // Начальное значение: память → localStorage → initial
+  const getInitial = (): T => {
+    if (memCache[key] !== undefined) return memCache[key] as T;
+    const ls = lsGet(key);
+    if (ls !== null) { memCache[key] = ls; return ls as T; }
+    return initial;
+  };
 
-  // Загрузка при маунте
+  const [value, setValueRaw] = useState<T>(getInitial);
+  const initialized = useRef(false);
+  const savedValue = useRef(value);
+
+  // Загрузка с сервера один раз при маунте
   useEffect(() => {
-    let cancelled = false;
-    remoteGet(key).then((remote) => {
-      if (cancelled) return;
+    fetchRemote(key).then(remote => {
       if (remote !== null && remote !== undefined) {
         setValueRaw(remote as T);
+        savedValue.current = remote as T;
       }
-      setLoading(false);
-    }).catch(() => {
-      setLoading(false);
     });
-    return () => { cancelled = true; };
-   
+     
   }, [key]);
 
-  // Сохранение при изменении (пропускаем первый рендер — начальное значение)
+  // Сохранение при изменении (только не при первом рендере)
   useEffect(() => {
-    if (loading) return; // не сохраняем пока не загрузили с сервера
-    if (isFirstLoad.current) {
-      isFirstLoad.current = false;
-      return;
-    }
-    // Debounce
-    if (writeTimers[key]) clearTimeout(writeTimers[key]);
-    writeTimers[key] = setTimeout(() => {
-      remoteSet(key, value).catch(() => {/* тихо игнорируем */});
-    }, WRITE_DEBOUNCE);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!initialized.current) { initialized.current = true; return; }
+    if (JSON.stringify(value) === JSON.stringify(savedValue.current)) return;
+    savedValue.current = value;
+    memCache[key] = value;
+    saveRemote(key, value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
-  const setValue = useCallback<React.Dispatch<React.SetStateAction<T>>>(
-    (action) => setValueRaw(action),
-    []
-  );
-
-  return [value, setValue, loading];
+  return [value, setValueRaw];
 }

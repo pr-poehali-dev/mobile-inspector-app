@@ -2,7 +2,6 @@ import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
-import { usePersistentState } from "@/hooks/usePersistentState";
 import { useSharedState } from "@/hooks/useSharedState";
 
 // ── Типы конструктора курсов ──
@@ -136,11 +135,11 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
   const { users, currentUser } = useApp();
 
   const [tab, setTab] = useState<Tab>(initialTab || "constructor");
-  const [courses, setCourses] = usePersistentState<Course[]>(`school_courses_${currentUser.id}`, INITIAL_COURSES);
-  const [students, setStudents] = usePersistentState<Student[]>(`school_students_${currentUser.id}`, INITIAL_STUDENTS);
-  const [homework, setHomework] = usePersistentState<Homework[]>(`school_homework_${currentUser.id}`, INITIAL_HOMEWORK);
-  const [groups, setGroups] = usePersistentState<Group[]>(`school_groups_${currentUser.id}`, []);
-  const [plans, setPlans] = usePersistentState<Lesson_Plan[]>(`school_plans_${currentUser.id}`, []);
+  const [courses, setCourses] = useSharedState<Course[]>(`school_courses_${currentUser.id}`, INITIAL_COURSES);
+  const [students, setStudents] = useSharedState<Student[]>(`school_students_${currentUser.id}`, INITIAL_STUDENTS);
+  const [homework, setHomework] = useSharedState<Homework[]>(`school_homework_${currentUser.id}`, INITIAL_HOMEWORK);
+  const [groups, setGroups] = useSharedState<Group[]>(`school_groups_${currentUser.id}`, []);
+  const [plans, setPlans] = useSharedState<Lesson_Plan[]>(`school_plans_${currentUser.id}`, []);
   // Записи на курсы — глобальный store (заполняется учениками + управляется владельцем)
   const [enrollments, setEnrollments] = useSharedState<Enrollment[]>("school_enrollments_all", []);
 

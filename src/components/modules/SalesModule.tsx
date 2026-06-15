@@ -2,7 +2,6 @@ import { useState, useMemo, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
-import { usePersistentState } from "@/hooks/usePersistentState";
 import { useSharedState } from "@/hooks/useSharedState";
 
 interface Props { onBack: () => void; }
@@ -61,13 +60,13 @@ export default function SalesModule({ onBack }: Props) {
   const refLink = `https://mobilinspector.ru/?ref=${promoCode}`;
 
   const storeKey = `sales_data_user_${currentUser.id}`;
-  const [data, setData] = usePersistentState<SalesData>(storeKey, {
+  const [data, setData] = useSharedState<SalesData>(storeKey, {
     visits: 27, purchases: 2, balance: 248, withdrawn: 0,
     earnings: seedEarnings(), withdrawRequests: [],
   });
 
   // Кабинет менеджера
-  const [managerProfile, setManagerProfile] = usePersistentState<ManagerProfile>(
+  const [managerProfile, setManagerProfile] = useSharedState<ManagerProfile>(
     `manager_profile_${currentUser.id}`,
     { name: currentUser.name, photo: "", requisites: "", phone: currentUser.phone || "" }
   );
