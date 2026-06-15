@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AuthScreen from "@/components/AuthScreen";
 import Dashboard from "@/components/Dashboard";
 import VideoModule from "@/components/modules/VideoModule";
@@ -101,11 +101,29 @@ function AppShell({ user, onLogout }: { user: User; onLogout: () => void }) {
   );
 }
 
-export default function Index() {
-  const [user, setUser] = useState<User | null>(null);
+const SESSION_KEY = "mi_session_v1";
 
-  const handleLogin = (u: User) => setUser(u);
-  const handleLogout = () => setUser(null);
+function loadSession(): User | null {
+  try { const raw = localStorage.getItem(SESSION_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
+}
+function saveSession(u: User) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(u)); } catch { /* ignore */ }
+}
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+}
+
+export default function Index() {
+  const [user, setUser] = useState<User | null>(() => loadSession());
+
+  // При обновлении страницы сессия восстанавливается из localStorage
+  useEffect(() => {
+    const saved = loadSession();
+    if (saved && !user) setUser(saved);
+  }, []);
+
+  const handleLogin = (u: User) => { saveSession(u); setUser(u); };
+  const handleLogout = () => { clearSession(); setUser(null); };
 
   if (!user) return <AuthScreen onLogin={handleLogin} />;
 

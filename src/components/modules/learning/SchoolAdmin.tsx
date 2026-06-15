@@ -444,14 +444,26 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
         )}
         {tab === "constructor" && activeCourse && (
           <div className="space-y-4">
-            {/* Кнопка добавить курс */}
-            <div className="flex justify-end">
+            {/* Шапка: добавить курс + сохранить */}
+            <div className="flex items-center gap-2">
               <button onClick={addCourse} className="flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1" style={{ background: 'rgba(99,102,241,0.12)', border: '1px dashed rgba(99,102,241,0.4)', color: '#818cf8' }}>
                 <Icon name="Plus" size={13} color="#818cf8" />Новый курс
               </button>
+              <div className="flex-1" />
+              <button
+                onClick={() => {
+                  // Принудительно сохраняем courses на сервер прямо сейчас
+                  setCourses(prev => [...prev]);
+                  showToast("✅ Курс сохранён");
+                }}
+                className="px-4 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 text-white"
+                style={{ background: 'linear-gradient(135deg,#3b82f6,#2563eb)' }}
+              >
+                <Icon name="Save" size={13} color="white" />Сохранить изменения
+              </button>
             </div>
 
-            {/* Название курса (исправлено: рабочее поле) */}
+            {/* Название курса */}
             <div className="glass rounded-2xl p-4 space-y-3">
               <Field label="Название курса" value={activeCourse.title} onChange={renameCourse} placeholder="Введите название курса..." />
               <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: activeCourse.published ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)', border: `1px solid ${activeCourse.published ? 'rgba(16,185,129,0.3)' : 'rgba(255,255,255,0.1)'}` }}>
@@ -460,7 +472,7 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
               </div>
             </div>
 
-            <p className="text-xs text-white/30 px-1">Перетаскивание уроков — стрелками ↑↓. Каждый урок имеет свою форму ввода по типу.</p>
+            <p className="text-xs text-white/30 px-1">Каждый урок имеет свою форму ввода по типу.</p>
             {activeCourse.modules.map(m => (
               <div key={m.id} className="glass rounded-2xl p-4">
                 <div className="flex items-center gap-2 mb-3">
@@ -486,7 +498,16 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
                 <div className="flex flex-wrap gap-2">{(Object.keys(LESSON_TYPES) as LessonType[]).map(t => <button key={t} onClick={() => addLesson(m.id, t)} className="text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1" style={{ background: `${LESSON_TYPES[t].color}15`, color: LESSON_TYPES[t].color }}><Icon name="Plus" size={11} color={LESSON_TYPES[t].color} />{LESSON_TYPES[t].label}</button>)}</div>
               </div>
             ))}
-            <button onClick={addModule} className="btn-primary flex items-center justify-center gap-2"><Icon name="FolderPlus" size={18} />Добавить модуль</button>
+            <div className="flex gap-2">
+              <button onClick={addModule} className="btn-ghost flex-1 flex items-center justify-center gap-2"><Icon name="FolderPlus" size={16} />Добавить модуль</button>
+              <button
+                onClick={() => { setCourses(prev => [...prev]); showToast("✅ Изменения сохранены"); }}
+                className="flex-1 py-3 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 text-white"
+                style={{ background: 'linear-gradient(135deg,#3b82f6,#2563eb)' }}
+              >
+                <Icon name="Save" size={16} color="white" />Сохранить изменения
+              </button>
+            </div>
           </div>
         )}
 
