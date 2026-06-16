@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode, useEffect } from "react";
+import { createContext, useContext, useState, useRef, ReactNode, useEffect } from "react";
 import { useSharedState } from "@/hooks/useSharedState";
 
 export type UserRole = "user" | "admin" | "content_maker" | "editor" | "documentor" | "executor" | "school" | "guest";
@@ -210,7 +210,10 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
   const [paymentServices, setPaymentServices] = useSharedState<PaymentService[]>("paymentServices", []);
   const [supportMessages, setSupportMessages] = useSharedState<SupportMessage[]>("supportMessages", []);
   const [blockedContent, setBlockedContent] = useSharedState<BlockedContentRef[]>("blockedContent", []);
-  const [categories, setCategories] = useSharedState<Record<string, string[]>>("categories", DEFAULT_CATEGORIES);
+  const [categoriesRaw, setCategoriesRaw] = useSharedState<Record<string, string[]>>("categories", DEFAULT_CATEGORIES);
+  // Если в БД пустой объект {} — используем DEFAULT (первый запуск)
+  const categories = Object.keys(categoriesRaw).length > 0 ? categoriesRaw : DEFAULT_CATEGORIES;
+  const setCategories = (v: Record<string, string[]> | ((p: Record<string, string[]>) => Record<string, string[]>)) => setCategoriesRaw(v as Record<string, string[]>);
   const [totalVisits, setTotalVisits] = useSharedState<number>("totalVisits", 0);
 
   // ── ЛОКАЛЬНЫЕ данные (у каждого пользователя свои) ───────────────────────
@@ -221,18 +224,29 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
 
   // currentUser — берём из общего списка пользователей (по телефону)
   const [currentUser, setCurrentUserState] = useState<AppUser>(initialUser);
+  const userRegistered = useRef(false);
+
   useEffect(() => {
     const found = users.find(u => u.phone === initialUser.phone);
     if (found) {
       setCurrentUserState(found);
-    } else if (users.length > 0) {
-      // Нового пользователя добавляем в общий список
-      const created = { ...initialUser, id: Math.max(0, ...users.map(u => u.id)) + 1 };
+      userRegistered.current = true;
+    } else if (!userRegistered.current) {
+      // Пользователя ещё нет в списке — добавляем независимо от длины массива
+      userRegistered.current = true;
+      const newId = users.length > 0
+        ? Math.max(...users.map(u => u.id)) + 1
+        : initialUser.id;
+      const created = { ...initialUser, id: newId };
       setCurrentUserState(created);
-      setUsers(prev => [...prev, created]);
+      setUsers(prev => {
+        // Проверяем ещё раз (race condition)
+        if (prev.find(u => u.phone === initialUser.phone)) return prev;
+        return [...prev, created];
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [users, initialUser.phone]);
+  }, [users]);
 
   // Счётчик посещений — один раз за сессию
   useEffect(() => {
