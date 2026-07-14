@@ -1,0 +1,17 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Некорректный email отклоняется",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "send", "email": "not-an-email" },
+      "expectedStatus": 400
+    }
+  ]
+}

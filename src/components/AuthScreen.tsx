@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { User } from "@/pages/Index";
 import Icon from "@/components/ui/icon";
 import func2url from "../../backend/func2url.json";
@@ -7,15 +7,16 @@ interface Props {
   onLogin: (user: User) => void;
 }
 
-type Step = "welcome" | "phone" | "otp" | "consent" | "credentials" | "login" | "admin";
+type Step = "welcome" | "email" | "otp" | "consent" | "credentials" | "login" | "admin";
 
 const ADMIN_PHONE_DIGITS = "79682619505";
 const APP_STATE_API = (func2url as Record<string, string>)["app-state"];
+const EMAIL_AUTH_API = (func2url as Record<string, string>)["email-auth"];
 const ACCOUNTS_KEY = "mi_accounts_v1";
 
 // ── Хранилище аккаунтов — общая база данных (не localStorage!) ──
 // Работает напрямую с сервером, чтобы вход/регистрация были одинаковы на любом устройстве.
-interface StoredAccount { phone: string; name: string; login: string; password: string; }
+interface StoredAccount { email: string; name: string; login: string; password: string; }
 
 async function fetchAccounts(): Promise<StoredAccount[]> {
   try {
@@ -29,7 +30,7 @@ async function fetchAccounts(): Promise<StoredAccount[]> {
 }
 
 async function saveAccount(acc: StoredAccount): Promise<void> {
-  const list = (await fetchAccounts()).filter(a => a.phone !== acc.phone);
+  const list = (await fetchAccounts()).filter(a => a.email !== acc.email);
   list.push(acc);
   try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list)); } catch { /* ignore */ }
   await fetch(APP_STATE_API, {
@@ -39,11 +40,14 @@ async function saveAccount(acc: StoredAccount): Promise<void> {
   }).catch(() => {/* ignore */});
 }
 
-async function findAccount(loginOrPhone: string): Promise<StoredAccount | undefined> {
-  const id = loginOrPhone.trim().toLowerCase();
-  const digits = loginOrPhone.replace(/\D/g, "");
+async function findAccount(loginOrEmail: string): Promise<StoredAccount | undefined> {
+  const id = loginOrEmail.trim().toLowerCase();
   const list = await fetchAccounts();
-  return list.find(a => a.login.toLowerCase() === id || a.phone === digits);
+  return list.find(a => a.login.toLowerCase() === id || a.email.toLowerCase() === id);
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
 }
 
 const LEGAL_DOCS = [
@@ -82,7 +86,7 @@ const LEGAL_DOCS = [
 Настоящая Политика конфиденциальности описывает порядок обработки персональных данных в приложении «Мобильный Инспектор» в соответствии с требованиями Федерального закона № 152-ФЗ «О персональных данных».
 
 1. КАТЕГОРИИ ОБРАБАТЫВАЕМЫХ ДАННЫХ
-1.1. Номер мобильного телефона — для идентификации и аутентификации.
+1.1. Адрес электронной почты — для идентификации и аутентификации.
 1.2. Имя пользователя — для персонализации интерфейса.
 1.3. Данные об активности — для обеспечения безопасности и улучшения сервиса.
 
@@ -110,7 +114,7 @@ const LEGAL_DOCS = [
 В соответствии с требованиями Федерального закона от 27.07.2006 № 152-ФЗ «О персональных данных», настоящим даю своё согласие ООО «Мобильный Инспектор» (ИНН: ХХХХХХХХ, адрес: г. Москва) на обработку следующих персональных данных:
 
 ПЕРЕЧЕНЬ ПЕРСОНАЛЬНЫХ ДАННЫХ:
-— номер мобильного телефона;
+— адрес электронной почты;
 — имя и фамилия (при указании);
 — данные о действиях в приложении.
 
@@ -131,7 +135,7 @@ const LEGAL_DOCS = [
 
 export default function AuthScreen({ onLogin }: Props) {
   const [step, setStep] = useState<Step>("welcome");
-  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [otp, setOtp] = useState(["", "", "", ""]);
   const [consents, setConsents] = useState({ terms: false, privacy: false, pd: false });
   const [loading, setLoading] = useState(false);
@@ -140,11 +144,20 @@ export default function AuthScreen({ onLogin }: Props) {
   const [regName, setRegName] = useState("");
   const [regLogin, setRegLogin] = useState("");
   const [regPassword, setRegPassword] = useState("");
-  // Вход: логин/телефон + пароль
+  // Вход: логин/email + пароль
   const [loginId, setLoginId] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [authError, setAuthError] = useState("");
+  const [resendTimer, setResendTimer] = useState(0);
+  // Служебный вход администратора — по номеру телефона
+  const [adminPhone, setAdminPhone] = useState("");
   const otpRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)];
+
+  useEffect(() => {
+    if (resendTimer <= 0) return;
+    const t = setTimeout(() => setResendTimer(s => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendTimer]);
 
   const formatPhone = (val: string) => {
     const digits = val.replace(/\D/g, "");
@@ -157,21 +170,41 @@ export default function AuthScreen({ onLogin }: Props) {
     return formatted;
   };
 
-  const handlePhoneInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAdminPhoneInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value.replace(/\D/g, "");
     const trimmed = raw.startsWith("7") ? raw : raw.startsWith("8") ? "7" + raw.slice(1) : "7" + raw;
-    setPhone(trimmed.slice(0, 11));
-  };
-
-  const handleSendCode = () => {
-    if (phone.length < 11) return;
-    setLoading(true);
-    setTimeout(() => { setLoading(false); setStep("otp"); }, 1000);
+    setAdminPhone(trimmed.slice(0, 11));
   };
 
   const handleAdminLogin = () => {
-    if (phone !== ADMIN_PHONE_DIGITS) return;
-    onLogin({ phone, name: "Администратор", role: "admin" });
+    if (adminPhone !== ADMIN_PHONE_DIGITS) return;
+    onLogin({ phone: adminPhone, email: "", name: "Администратор", role: "admin" });
+  };
+
+  // Отправка 4-значного кода на почту
+  const handleSendEmailCode = async () => {
+    if (!isValidEmail(email)) { setAuthError("Введите корректный email"); return; }
+    setAuthError("");
+    setLoading(true);
+    try {
+      const res = await fetch(EMAIL_AUTH_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send", email: email.trim().toLowerCase() }),
+      });
+      const data = await res.json();
+      setLoading(false);
+      if (!res.ok || data.error) {
+        setAuthError(data.error || "Не удалось отправить код. Попробуйте снова.");
+        return;
+      }
+      setOtp(["", "", "", ""]);
+      setResendTimer(59);
+      setStep("otp");
+    } catch {
+      setLoading(false);
+      setAuthError("Не удалось отправить код. Проверьте соединение.");
+    }
   };
 
   const handleOtpChange = (i: number, val: string) => {
@@ -181,7 +214,7 @@ export default function AuthScreen({ onLogin }: Props) {
     setOtp(newOtp);
     if (val && i < 3) otpRefs[i + 1].current?.focus();
     if (newOtp.every(v => v !== "") && newOtp.join("").length === 4) {
-      setTimeout(() => verifyOtp(newOtp.join("")), 200);
+      setTimeout(() => verifyEmailOtp(newOtp.join("")), 200);
     }
   };
 
@@ -191,13 +224,26 @@ export default function AuthScreen({ onLogin }: Props) {
     }
   };
 
-  const verifyOtp = (code: string) => {
+  const verifyEmailOtp = async (code: string) => {
     setLoading(true);
-    setTimeout(() => {
+    setAuthError("");
+    try {
+      const res = await fetch(EMAIL_AUTH_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify", email: email.trim().toLowerCase(), code }),
+      });
+      const data = await res.json();
       setLoading(false);
-      // Любой 4-значный код подтверждает номер. Дальше — согласие и создание логина/пароля.
-      if (code.length === 4) setStep("consent");
-    }, 800);
+      if (!res.ok || !data.ok) {
+        setAuthError(data.error || "Неверный код");
+        return;
+      }
+      setStep("consent");
+    } catch {
+      setLoading(false);
+      setAuthError("Не удалось проверить код. Проверьте соединение.");
+    }
   };
 
   const allConsents = consents.terms && consents.privacy && consents.pd;
@@ -216,16 +262,16 @@ export default function AuthScreen({ onLogin }: Props) {
     try {
       const existing = await findAccount(regLogin);
       if (existing) { setAuthError("Такой логин уже занят"); setLoading(false); return; }
-      await saveAccount({ phone, name: regName.trim(), login: regLogin.trim(), password: regPassword });
+      await saveAccount({ email: email.trim().toLowerCase(), name: regName.trim(), login: regLogin.trim(), password: regPassword });
       setLoading(false);
-      onLogin({ phone, name: regName.trim(), role: "user" });
+      onLogin({ email: email.trim().toLowerCase(), name: regName.trim(), role: "user" });
     } catch {
       setLoading(false);
       setAuthError("Не удалось создать аккаунт. Проверьте соединение и попробуйте снова.");
     }
   };
 
-  // Вход по существующему аккаунту (логин или телефон + пароль)
+  // Вход по существующему аккаунту (логин или email + пароль)
   const handleExistingLogin = async () => {
     setAuthError("");
     setLoading(true);
@@ -234,7 +280,7 @@ export default function AuthScreen({ onLogin }: Props) {
       if (!acc) { setAuthError("Аккаунт не найден. Зарегистрируйтесь."); setLoading(false); return; }
       if (acc.password !== loginPassword) { setAuthError("Неверный пароль"); setLoading(false); return; }
       setLoading(false);
-      onLogin({ phone: acc.phone, name: acc.name, role: "user" });
+      onLogin({ email: acc.email, name: acc.name, role: "user" });
     } catch {
       setLoading(false);
       setAuthError("Не удалось выполнить вход. Проверьте соединение и попробуйте снова.");
@@ -297,7 +343,7 @@ export default function AuthScreen({ onLogin }: Props) {
               </div>
               <button
                 className="btn-primary flex items-center justify-center gap-2"
-                onClick={() => { setAuthError(""); setStep("phone"); }}
+                onClick={() => { setAuthError(""); setStep("email"); }}
               >
                 <Icon name="UserPlus" size={18} /> Зарегистрироваться
               </button>
@@ -318,11 +364,11 @@ export default function AuthScreen({ onLogin }: Props) {
                   <Icon name="ArrowLeft" size={16} /> Назад
                 </button>
                 <h2 className="text-xl font-bold text-white mb-1">Вход в аккаунт</h2>
-                <p className="text-white/50 text-sm">Введите логин или телефон и пароль</p>
+                <p className="text-white/50 text-sm">Введите логин или email и пароль</p>
               </div>
               <div>
-                <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Логин или телефон</label>
-                <input className="input-field" value={loginId} onChange={e => { setLoginId(e.target.value); setAuthError(""); }} placeholder="Ваш логин" autoFocus />
+                <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Логин или email</label>
+                <input className="input-field" value={loginId} onChange={e => { setLoginId(e.target.value); setAuthError(""); }} placeholder="Ваш логин или email" autoFocus />
               </div>
               <div>
                 <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Пароль</label>
@@ -332,14 +378,14 @@ export default function AuthScreen({ onLogin }: Props) {
               <button className="btn-primary flex items-center justify-center gap-2" onClick={handleExistingLogin} disabled={!loginId.trim() || !loginPassword || loading}>
                 {loading ? <><Icon name="Loader2" size={18} className="animate-spin" /> Вход...</> : <><Icon name="LogIn" size={18} /> Войти</>}
               </button>
-              <button onClick={() => { setStep("phone"); setAuthError(""); }} className="btn-ghost w-full text-sm">Нет аккаунта? Зарегистрироваться</button>
+              <button onClick={() => { setStep("email"); setAuthError(""); }} className="btn-ghost w-full text-sm">Нет аккаунта? Зарегистрироваться</button>
             </div>
           )}
 
           {step === "credentials" && (
             <div className="space-y-5 animate-scale-in">
               <div>
-                <div className="inline-flex items-center gap-2 tag mb-3"><Icon name="ShieldCheck" size={13} /> Номер подтверждён</div>
+                <div className="inline-flex items-center gap-2 tag mb-3"><Icon name="ShieldCheck" size={13} /> Email подтверждён</div>
                 <h2 className="text-xl font-bold text-white mb-1">Создайте логин и пароль</h2>
                 <p className="text-white/50 text-sm">Эти данные понадобятся для входа</p>
               </div>
@@ -365,7 +411,7 @@ export default function AuthScreen({ onLogin }: Props) {
           {step === "admin" && (
             <div className="space-y-5 animate-scale-in">
               <div>
-                <button onClick={() => setStep("phone")} className="flex items-center gap-1 text-white/50 text-sm mb-3 hover:text-white/80 transition-colors">
+                <button onClick={() => setStep("welcome")} className="flex items-center gap-1 text-white/50 text-sm mb-3 hover:text-white/80 transition-colors">
                   <Icon name="ArrowLeft" size={16} /> Обычный вход
                 </button>
                 <div className="flex items-center gap-2 mb-1">
@@ -380,8 +426,8 @@ export default function AuthScreen({ onLogin }: Props) {
                   className="input-field"
                   type="tel"
                   placeholder="+7 (___) ___-__-__"
-                  value={formatPhone(phone)}
-                  onChange={handlePhoneInput}
+                  value={formatPhone(adminPhone)}
+                  onChange={handleAdminPhoneInput}
                   onKeyDown={e => e.key === "Enter" && handleAdminLogin()}
                   autoFocus
                 />
@@ -389,38 +435,40 @@ export default function AuthScreen({ onLogin }: Props) {
               <button
                 className="btn-primary flex items-center justify-center gap-2"
                 onClick={handleAdminLogin}
-                disabled={phone !== ADMIN_PHONE_DIGITS}
-                style={{ background: phone === ADMIN_PHONE_DIGITS ? 'linear-gradient(135deg, #ef4444, #b91c1c)' : undefined }}
+                disabled={adminPhone !== ADMIN_PHONE_DIGITS}
+                style={{ background: adminPhone === ADMIN_PHONE_DIGITS ? 'linear-gradient(135deg, #ef4444, #b91c1c)' : undefined }}
               >
                 <Icon name="LogIn" size={18} />Войти как админ
               </button>
             </div>
           )}
 
-          {step === "phone" && (
+          {step === "email" && (
             <div className="space-y-5">
               <div>
                 <button onClick={() => setStep("welcome")} className="flex items-center gap-1 text-white/50 text-sm mb-3 hover:text-white/80 transition-colors">
                   <Icon name="ArrowLeft" size={16} /> Назад
                 </button>
                 <h2 className="text-xl font-bold text-white mb-1">Регистрация</h2>
-                <p className="text-white/50 text-sm">Введите номер телефона — вышлем SMS-код</p>
+                <p className="text-white/50 text-sm">Введите email — вышлем код подтверждения</p>
               </div>
               <div>
-                <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Номер телефона</label>
+                <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Электронная почта</label>
                 <input
                   className="input-field"
-                  type="tel"
-                  placeholder="+7 (___) ___-__-__"
-                  value={formatPhone(phone)}
-                  onChange={handlePhoneInput}
-                  onKeyDown={e => e.key === "Enter" && handleSendCode()}
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={e => { setEmail(e.target.value); setAuthError(""); }}
+                  onKeyDown={e => e.key === "Enter" && handleSendEmailCode()}
+                  autoFocus
                 />
               </div>
+              {authError && <p className="text-xs text-red-400">{authError}</p>}
               <button
                 className="btn-primary flex items-center justify-center gap-2"
-                onClick={handleSendCode}
-                disabled={phone.length < 11 || loading}
+                onClick={handleSendEmailCode}
+                disabled={!email.trim() || loading}
               >
                 {loading ? (
                   <><Icon name="Loader2" size={18} className="animate-spin" /> Отправка...</>
@@ -437,12 +485,11 @@ export default function AuthScreen({ onLogin }: Props) {
           {step === "otp" && (
             <div className="space-y-5 animate-scale-in">
               <div>
-                <button onClick={() => setStep("phone")} className="flex items-center gap-1 text-white/50 text-sm mb-3 hover:text-white/80 transition-colors">
-                  <Icon name="ArrowLeft" size={16} /> Изменить номер
+                <button onClick={() => setStep("email")} className="flex items-center gap-1 text-white/50 text-sm mb-3 hover:text-white/80 transition-colors">
+                  <Icon name="ArrowLeft" size={16} /> Изменить email
                 </button>
                 <h2 className="text-xl font-bold text-white mb-1">Введите код</h2>
-                <p className="text-white/50 text-sm">Код отправлен на <span className="text-white font-medium">{formatPhone(phone)}</span></p>
-                <p className="text-xs text-blue-400 mt-1">Для демо: введите любой 4-значный код</p>
+                <p className="text-white/50 text-sm">Код отправлен на <span className="text-white font-medium">{email}</span></p>
               </div>
               <div className="flex gap-3 justify-center">
                 {otp.map((val, i) => (
@@ -459,13 +506,19 @@ export default function AuthScreen({ onLogin }: Props) {
                   />
                 ))}
               </div>
+              {authError && <p className="text-xs text-red-400 text-center">{authError}</p>}
               {loading && (
                 <div className="flex items-center justify-center gap-2 text-white/50 text-sm">
                   <Icon name="Loader2" size={16} className="animate-spin" /> Проверяем...
                 </div>
               )}
-              <button className="btn-ghost w-full text-sm text-center flex items-center justify-center gap-2">
-                <Icon name="RefreshCw" size={15} /> Отправить повторно через 59 сек
+              <button
+                className="btn-ghost w-full text-sm text-center flex items-center justify-center gap-2 disabled:opacity-40"
+                onClick={handleSendEmailCode}
+                disabled={resendTimer > 0 || loading}
+              >
+                <Icon name="RefreshCw" size={15} />
+                {resendTimer > 0 ? `Отправить повторно через ${resendTimer} сек` : "Отправить код повторно"}
               </button>
             </div>
           )}

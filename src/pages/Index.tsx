@@ -36,7 +36,8 @@ export type AppScreen =
   | "users";
 
 export interface User {
-  phone: string;
+  email: string;
+  phone?: string; // используется только для служебного входа админа
   name: string;
   role: "user" | "admin" | "content_maker" | "editor" | "documentor" | "guest";
   avatar?: string;
@@ -44,11 +45,11 @@ export interface User {
   editorRequestPending?: boolean;
 }
 
-// Стабильный числовой id по номеру телефона — идентичность пользователя сохраняется между входами
-function idFromPhone(phone: string): number {
-  const digits = (phone || "").replace(/\D/g, "");
+// Стабильный числовой id по email — идентичность пользователя сохраняется между входами
+function idFromEmail(email: string): number {
+  const norm = (email || "").trim().toLowerCase();
   let hash = 0;
-  for (let i = 0; i < digits.length; i++) hash = (hash * 31 + digits.charCodeAt(i)) % 1000000007;
+  for (let i = 0; i < norm.length; i++) hash = (hash * 31 + norm.charCodeAt(i)) % 1000000007;
   // Сдвигаем диапазон, чтобы не пересекаться с демо-пользователями (id 1..50)
   return 1000 + (hash % 9_000_000);
 }
@@ -56,10 +57,10 @@ function idFromPhone(phone: string): number {
 function makeAppUser(u: User): AppUser {
   const isAdmin = u.phone === ADMIN_PHONE || u.role === "admin";
   return {
-    id: isAdmin ? 1 : idFromPhone(u.phone),
-    phone: u.phone,
+    id: isAdmin ? 1 : idFromEmail(u.email),
+    phone: u.phone || "",
     name: u.name,
-    email: "",
+    email: u.email,
     location: "Москва",
     avatar: u.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(),
     roles: isAdmin ? ["admin"] : [u.role],

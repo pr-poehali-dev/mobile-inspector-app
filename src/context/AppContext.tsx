@@ -227,7 +227,12 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
   const userRegistered = useRef(false);
 
   useEffect(() => {
-    const found = users.find(u => u.phone === initialUser.phone);
+    // Идентификация: по email (обычные пользователи) или по телефону (админ)
+    const matchUser = (u: AppUser) =>
+      (initialUser.email && u.email === initialUser.email) ||
+      (initialUser.phone && u.phone === initialUser.phone);
+
+    const found = users.find(matchUser);
     if (found) {
       setCurrentUserState(found);
       userRegistered.current = true;
@@ -241,7 +246,7 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
       setCurrentUserState(created);
       setUsers(prev => {
         // Проверяем ещё раз (race condition)
-        if (prev.find(u => u.phone === initialUser.phone)) return prev;
+        if (prev.find(matchUser)) return prev;
         return [...prev, created];
       });
     }
