@@ -7,7 +7,7 @@ interface Props {
   onLogin: (user: User) => void;
 }
 
-type Step = "welcome" | "email" | "otp" | "consent" | "credentials" | "login" | "admin";
+type Step = "welcome" | "email" | "otp" | "consent" | "credentials" | "login" | "admin" | "forgotEmail" | "forgotOtp" | "resetPassword";
 
 const ADMIN_PHONE_DIGITS = "79682619505";
 const APP_STATE_API = (func2url as Record<string, string>)["app-state"];
@@ -44,6 +44,19 @@ async function findAccount(loginOrEmail: string): Promise<StoredAccount | undefi
   const id = loginOrEmail.trim().toLowerCase();
   const list = await fetchAccounts();
   return list.find(a => a.login.toLowerCase() === id || a.email.toLowerCase() === id);
+}
+
+async function updateAccountPassword(email: string, newPassword: string): Promise<void> {
+  const list = await fetchAccounts();
+  const idx = list.findIndex(a => a.email.toLowerCase() === email.trim().toLowerCase());
+  if (idx === -1) return;
+  list[idx] = { ...list[idx], password: newPassword };
+  try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+  await fetch(APP_STATE_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: ACCOUNTS_KEY, value: list }),
+  }).catch(() => {/* ignore */});
 }
 
 function isValidEmail(email: string): boolean {
@@ -149,9 +162,14 @@ export default function AuthScreen({ onLogin }: Props) {
   const [loginPassword, setLoginPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [resendTimer, setResendTimer] = useState(0);
+  // Восстановление пароля: email забывшего + новый пароль
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [forgotOtp, setForgotOtp] = useState(["", "", "", ""]);
   // Служебный вход администратора — по номеру телефона
   const [adminPhone, setAdminPhone] = useState("");
   const otpRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)];
+  const forgotOtpRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)];
 
   useEffect(() => {
     if (resendTimer <= 0) return;
@@ -287,6 +305,91 @@ export default function AuthScreen({ onLogin }: Props) {
     }
   };
 
+  // Восстановление пароля: шаг 1 — отправка кода на email
+  const handleSendForgotCode = async () => {
+    if (!isValidEmail(forgotEmail)) { setAuthError("Введите корректный email"); return; }
+    setAuthError("");
+    setLoading(true);
+    try {
+      const acc = await findAccount(forgotEmail);
+      if (!acc) { setAuthError("Аккаунт с таким email не найден"); setLoading(false); return; }
+      const res = await fetch(EMAIL_AUTH_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send", email: forgotEmail.trim().toLowerCase() }),
+      });
+      const data = await res.json();
+      setLoading(false);
+      if (!res.ok || data.error) {
+        setAuthError(data.error || "Не удалось отправить код. Попробуйте снова.");
+        return;
+      }
+      setForgotOtp(["", "", "", ""]);
+      setResendTimer(59);
+      setStep("forgotOtp");
+    } catch {
+      setLoading(false);
+      setAuthError("Не удалось отправить код. Проверьте соединение.");
+    }
+  };
+
+  const handleForgotOtpChange = (i: number, val: string) => {
+    if (!/^\d*$/.test(val)) return;
+    const next = [...forgotOtp];
+    next[i] = val.slice(-1);
+    setForgotOtp(next);
+    if (val && i < 3) forgotOtpRefs[i + 1].current?.focus();
+    if (next.every(v => v !== "") && next.join("").length === 4) {
+      setTimeout(() => verifyForgotOtp(next.join("")), 200);
+    }
+  };
+
+  const handleForgotOtpKeyDown = (i: number, e: React.KeyboardEvent) => {
+    if (e.key === "Backspace" && !forgotOtp[i] && i > 0) {
+      forgotOtpRefs[i - 1].current?.focus();
+    }
+  };
+
+  // Восстановление пароля: шаг 2 — проверка кода
+  const verifyForgotOtp = async (code: string) => {
+    setLoading(true);
+    setAuthError("");
+    try {
+      const res = await fetch(EMAIL_AUTH_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify", email: forgotEmail.trim().toLowerCase(), code }),
+      });
+      const data = await res.json();
+      setLoading(false);
+      if (!res.ok || !data.ok) {
+        setAuthError(data.error || "Неверный код");
+        return;
+      }
+      setNewPassword("");
+      setStep("resetPassword");
+    } catch {
+      setLoading(false);
+      setAuthError("Не удалось проверить код. Проверьте соединение.");
+    }
+  };
+
+  // Восстановление пароля: шаг 3 — сохранение нового пароля
+  const handleResetPassword = async () => {
+    if (newPassword.length < 4) return;
+    setLoading(true);
+    setAuthError("");
+    try {
+      await updateAccountPassword(forgotEmail, newPassword);
+      setLoading(false);
+      const acc = await findAccount(forgotEmail);
+      onLogin({ email: forgotEmail.trim().toLowerCase(), name: acc?.name || "", role: "user" });
+    } catch {
+      setLoading(false);
+      setAuthError("Не удалось сохранить новый пароль. Попробуйте снова.");
+    }
+  };
+
   const currentDoc = LEGAL_DOCS.find(d => d.id === openDoc);
 
   if (openDoc && currentDoc) {
@@ -377,6 +480,12 @@ export default function AuthScreen({ onLogin }: Props) {
               {authError && <p className="text-xs text-red-400">{authError}</p>}
               <button className="btn-primary flex items-center justify-center gap-2" onClick={handleExistingLogin} disabled={!loginId.trim() || !loginPassword || loading}>
                 {loading ? <><Icon name="Loader2" size={18} className="animate-spin" /> Вход...</> : <><Icon name="LogIn" size={18} /> Войти</>}
+              </button>
+              <button
+                onClick={() => { setForgotEmail(""); setAuthError(""); setStep("forgotEmail"); }}
+                className="w-full text-center text-sm text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                Забыли пароль?
               </button>
               <button onClick={() => { setStep("email"); setAuthError(""); }} className="btn-ghost w-full text-sm">Нет аккаунта? Зарегистрироваться</button>
             </div>
@@ -563,6 +672,113 @@ export default function AuthScreen({ onLogin }: Props) {
                 disabled={!allConsents || loading}
               >
                 <Icon name="ArrowRight" size={18} /> Продолжить
+              </button>
+            </div>
+          )}
+
+          {step === "forgotEmail" && (
+            <div className="space-y-5 animate-scale-in">
+              <div>
+                <button onClick={() => { setStep("login"); setAuthError(""); }} className="flex items-center gap-1 text-white/50 text-sm mb-3 hover:text-white/80 transition-colors">
+                  <Icon name="ArrowLeft" size={16} /> Назад
+                </button>
+                <h2 className="text-xl font-bold text-white mb-1">Восстановление пароля</h2>
+                <p className="text-white/50 text-sm">Введите email — вышлем код подтверждения</p>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Электронная почта</label>
+                <input
+                  className="input-field"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={forgotEmail}
+                  onChange={e => { setForgotEmail(e.target.value); setAuthError(""); }}
+                  onKeyDown={e => e.key === "Enter" && handleSendForgotCode()}
+                  autoFocus
+                />
+              </div>
+              {authError && <p className="text-xs text-red-400">{authError}</p>}
+              <button
+                className="btn-primary flex items-center justify-center gap-2"
+                onClick={handleSendForgotCode}
+                disabled={!forgotEmail.trim() || loading}
+              >
+                {loading ? (
+                  <><Icon name="Loader2" size={18} className="animate-spin" /> Отправка...</>
+                ) : (
+                  <><Icon name="Send" size={18} /> Получить код</>
+                )}
+              </button>
+            </div>
+          )}
+
+          {step === "forgotOtp" && (
+            <div className="space-y-5 animate-scale-in">
+              <div>
+                <button onClick={() => setStep("forgotEmail")} className="flex items-center gap-1 text-white/50 text-sm mb-3 hover:text-white/80 transition-colors">
+                  <Icon name="ArrowLeft" size={16} /> Изменить email
+                </button>
+                <h2 className="text-xl font-bold text-white mb-1">Введите код</h2>
+                <p className="text-white/50 text-sm">Код отправлен на <span className="text-white font-medium">{forgotEmail}</span></p>
+              </div>
+              <div className="flex gap-3 justify-center">
+                {forgotOtp.map((val, i) => (
+                  <input
+                    key={i}
+                    ref={forgotOtpRefs[i]}
+                    className={`otp-input ${val ? "filled" : ""}`}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={val}
+                    onChange={e => handleForgotOtpChange(i, e.target.value)}
+                    onKeyDown={e => handleForgotOtpKeyDown(i, e)}
+                  />
+                ))}
+              </div>
+              {authError && <p className="text-xs text-red-400 text-center">{authError}</p>}
+              {loading && (
+                <div className="flex items-center justify-center gap-2 text-white/50 text-sm">
+                  <Icon name="Loader2" size={16} className="animate-spin" /> Проверяем...
+                </div>
+              )}
+              <button
+                className="btn-ghost w-full text-sm text-center flex items-center justify-center gap-2 disabled:opacity-40"
+                onClick={handleSendForgotCode}
+                disabled={resendTimer > 0 || loading}
+              >
+                <Icon name="RefreshCw" size={15} />
+                {resendTimer > 0 ? `Отправить повторно через ${resendTimer} сек` : "Отправить код повторно"}
+              </button>
+            </div>
+          )}
+
+          {step === "resetPassword" && (
+            <div className="space-y-5 animate-scale-in">
+              <div>
+                <div className="inline-flex items-center gap-2 tag mb-3"><Icon name="ShieldCheck" size={13} /> Email подтверждён</div>
+                <h2 className="text-xl font-bold text-white mb-1">Новый пароль</h2>
+                <p className="text-white/50 text-sm">Придумайте новый пароль для входа</p>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Новый пароль</label>
+                <input
+                  className="input-field"
+                  type="password"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  placeholder="минимум 4 символа"
+                  onKeyDown={e => e.key === "Enter" && handleResetPassword()}
+                  autoFocus
+                />
+              </div>
+              {authError && <p className="text-xs text-red-400">{authError}</p>}
+              <button
+                className="btn-primary flex items-center justify-center gap-2"
+                onClick={handleResetPassword}
+                disabled={newPassword.length < 4 || loading}
+              >
+                {loading ? <><Icon name="Loader2" size={18} className="animate-spin" /> Сохраняем...</> : <><Icon name="UserCheck" size={18} /> Сохранить и войти</>}
               </button>
             </div>
           )}
