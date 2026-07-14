@@ -30,7 +30,7 @@ async function fetchAccounts(): Promise<StoredAccount[]> {
 }
 
 async function saveAccount(acc: StoredAccount): Promise<void> {
-  const list = (await fetchAccounts()).filter(a => a.email !== acc.email);
+  const list = (await fetchAccounts()).filter(a => (a.email || "") !== acc.email);
   list.push(acc);
   try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list)); } catch { /* ignore */ }
   await fetch(APP_STATE_API, {
@@ -43,12 +43,12 @@ async function saveAccount(acc: StoredAccount): Promise<void> {
 async function findAccount(loginOrEmail: string): Promise<StoredAccount | undefined> {
   const id = loginOrEmail.trim().toLowerCase();
   const list = await fetchAccounts();
-  return list.find(a => a.login.toLowerCase() === id || a.email.toLowerCase() === id);
+  return list.find(a => (a.login || "").toLowerCase() === id || (a.email || "").toLowerCase() === id);
 }
 
 async function updateAccountPassword(email: string, newPassword: string): Promise<void> {
   const list = await fetchAccounts();
-  const idx = list.findIndex(a => a.email.toLowerCase() === email.trim().toLowerCase());
+  const idx = list.findIndex(a => (a.email || "").toLowerCase() === email.trim().toLowerCase());
   if (idx === -1) return;
   list[idx] = { ...list[idx], password: newPassword };
   try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list)); } catch { /* ignore */ }
