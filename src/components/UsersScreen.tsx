@@ -2,6 +2,7 @@ import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import { useApp, AppUser } from "@/context/AppContext";
 import { AppScreen } from "@/pages/Index";
+import { useSharedState } from "@/hooks/useSharedState";
 
 interface Props { onBack: () => void; onNavigate: (s: AppScreen) => void; }
 
@@ -34,11 +35,7 @@ export default function UsersScreen({ onBack, onNavigate }: Props) {
   const [profileUser, setProfileUser] = useState<AppUser | null>(null);
   const [showInbox, setShowInbox] = useState(false);
   const [chatInput, setChatInput] = useState("");
-  const [chats, setChats] = useState<Record<number, ChatMsg[]>>({
-    2: [{ from: "them", text: "Здравствуйте! Видели моё новое видео по охране труда?", time: "10:24" }],
-    3: [{ from: "them", text: "Добрый день! Подскажите по инструктажу.", time: "Вчера" }],
-    4: [{ from: "them", text: "Спасибо за подписку на блог!", time: "2 дня назад" }],
-  });
+  const [chats, setChats] = useSharedState<Record<number, ChatMsg[]>>("user_chats", {});
 
   const others = users.filter(u => u.id !== currentUser.id);
   let list = others;

@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
+import { useApp } from "@/context/AppContext";
+import { useSharedState } from "@/hooks/useSharedState";
 
 interface Props { onBack: () => void; }
 
@@ -29,10 +31,13 @@ function getBotAnswer(text: string): string {
   return BOT_ANSWERS.default;
 }
 
+const DEFAULT_MESSAGES: Message[] = [
+  { id: 1, role: "bot", text: "Привет! Я ИИ-ассистент корпоративной платформы. Могу ответить на вопросы по документам, чек-листам, новостям и помочь найти нужную информацию. Что вас интересует?", time: "сейчас" }
+];
+
 export default function AIModule({ onBack }: Props) {
-  const [messages, setMessages] = useState<Message[]>([
-    { id: 1, role: "bot", text: "Привет! Я ИИ-ассистент корпоративной платформы. Могу ответить на вопросы по документам, чек-листам, новостям и помочь найти нужную информацию. Что вас интересует?", time: "сейчас" }
-  ]);
+  const { currentUser } = useApp();
+  const [messages, setMessages] = useSharedState<Message[]>(`ai_chat_${currentUser.id}`, DEFAULT_MESSAGES);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);

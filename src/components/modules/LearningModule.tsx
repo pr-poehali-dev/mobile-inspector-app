@@ -38,10 +38,10 @@ export default function LearningModule({ onBack }: Props) {
   const [hwText, setHwText] = useState("");
   const [hwFile, setHwFile] = useState("");
   const [chatInput, setChatInput] = useState("");
-  const [chatMsgs, setChatMsgs] = useState<{ author: string; text: string; me?: boolean; curator?: boolean }[]>([
-    { author: "Анна (куратор)", text: "Добро пожаловать на курс! Задавайте вопросы здесь.", curator: true },
-    { author: "Сергей", text: "Подскажите, где скачать методичку?" },
-  ]);
+  const [chatMsgs, setChatMsgs] = useSharedState<{ author: string; text: string; me?: boolean; curator?: boolean }[]>(
+    selectedCourse ? `course_chat_${selectedCourse.id}` : "__none__",
+    []
+  );
   const [toast, setToast] = useState<string | null>(null);
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [enrollFio, setEnrollFio] = useState("");

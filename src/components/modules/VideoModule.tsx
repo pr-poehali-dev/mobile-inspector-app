@@ -62,9 +62,9 @@ export default function VideoModule({ onBack }: Props) {
   const [tab, setTab] = useState<TabType>("all");
   const [category, setCategory] = useState("Все");
   const [search, setSearch] = useState("");
-  const [favorites, setFavorites] = useState<number[]>([2]);
-  const [likedVideos, setLikedVideos] = useState<number[]>([]);
-  const [subscribedAuthors, setSubscribedAuthors] = useState<number[]>([]);
+  const [favorites, setFavorites] = useSharedState<number[]>(`user_favorites_${currentUser.id}`, []);
+  const [likedVideos, setLikedVideos] = useSharedState<number[]>(`user_liked_videos_${currentUser.id}`, []);
+  const [subscribedAuthors, setSubscribedAuthors] = useSharedState<number[]>(`user_subscribed_authors_${currentUser.id}`, []);
   const [view, setView] = useState<ViewType>("feed");
   const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
   const [channelAuthor, setChannelAuthor] = useState<VideoAuthor | null>(null);

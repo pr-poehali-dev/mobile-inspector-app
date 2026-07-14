@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { User } from "@/pages/Index";
 import Icon from "@/components/ui/icon";
+import func2url from "../../backend/func2url.json";
 
 interface Props {
   onLogin: (user: User) => void;
@@ -9,22 +10,40 @@ interface Props {
 type Step = "welcome" | "phone" | "otp" | "consent" | "credentials" | "login" | "admin";
 
 const ADMIN_PHONE_DIGITS = "79682619505";
-
-// ── Хранилище аккаунтов (demo, localStorage). Идентичность по номеру телефона. ──
-interface StoredAccount { phone: string; name: string; login: string; password: string; }
+const APP_STATE_API = (func2url as Record<string, string>)["app-state"];
 const ACCOUNTS_KEY = "mi_accounts_v1";
-function loadAccounts(): StoredAccount[] {
-  try { return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]"); } catch { return []; }
+
+// ── Хранилище аккаунтов — общая база данных (не localStorage!) ──
+// Работает напрямую с сервером, чтобы вход/регистрация были одинаковы на любом устройстве.
+interface StoredAccount { phone: string; name: string; login: string; password: string; }
+
+async function fetchAccounts(): Promise<StoredAccount[]> {
+  try {
+    const res = await fetch(`${APP_STATE_API}?key=${encodeURIComponent(ACCOUNTS_KEY)}`);
+    const data = await res.json();
+    return Array.isArray(data.value) ? data.value : [];
+  } catch {
+    // Резервный вариант — localStorage (на случай отсутствия сети)
+    try { return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]"); } catch { return []; }
+  }
 }
-function saveAccount(acc: StoredAccount) {
-  const list = loadAccounts().filter(a => a.phone !== acc.phone);
+
+async function saveAccount(acc: StoredAccount): Promise<void> {
+  const list = (await fetchAccounts()).filter(a => a.phone !== acc.phone);
   list.push(acc);
-  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list));
+  try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+  await fetch(APP_STATE_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: ACCOUNTS_KEY, value: list }),
+  }).catch(() => {/* ignore */});
 }
-function findAccount(loginOrPhone: string): StoredAccount | undefined {
+
+async function findAccount(loginOrPhone: string): Promise<StoredAccount | undefined> {
   const id = loginOrPhone.trim().toLowerCase();
   const digits = loginOrPhone.replace(/\D/g, "");
-  return loadAccounts().find(a => a.login.toLowerCase() === id || a.phone === digits);
+  const list = await fetchAccounts();
+  return list.find(a => a.login.toLowerCase() === id || a.phone === digits);
 }
 
 const LEGAL_DOCS = [
@@ -190,28 +209,36 @@ export default function AuthScreen({ onLogin }: Props) {
   };
 
   const canFinishReg = regName.trim().length >= 2 && regLogin.trim().length >= 3 && regPassword.length >= 4;
-  const handleFinishRegister = () => {
+  const handleFinishRegister = async () => {
     if (!canFinishReg) return;
-    if (findAccount(regLogin)) { setAuthError("Такой логин уже занят"); return; }
     setLoading(true);
-    setTimeout(() => {
+    setAuthError("");
+    try {
+      const existing = await findAccount(regLogin);
+      if (existing) { setAuthError("Такой логин уже занят"); setLoading(false); return; }
+      await saveAccount({ phone, name: regName.trim(), login: regLogin.trim(), password: regPassword });
       setLoading(false);
-      saveAccount({ phone, name: regName.trim(), login: regLogin.trim(), password: regPassword });
       onLogin({ phone, name: regName.trim(), role: "user" });
-    }, 700);
+    } catch {
+      setLoading(false);
+      setAuthError("Не удалось создать аккаунт. Проверьте соединение и попробуйте снова.");
+    }
   };
 
   // Вход по существующему аккаунту (логин или телефон + пароль)
-  const handleExistingLogin = () => {
+  const handleExistingLogin = async () => {
     setAuthError("");
-    const acc = findAccount(loginId);
-    if (!acc) { setAuthError("Аккаунт не найден. Зарегистрируйтесь."); return; }
-    if (acc.password !== loginPassword) { setAuthError("Неверный пароль"); return; }
     setLoading(true);
-    setTimeout(() => {
+    try {
+      const acc = await findAccount(loginId);
+      if (!acc) { setAuthError("Аккаунт не найден. Зарегистрируйтесь."); setLoading(false); return; }
+      if (acc.password !== loginPassword) { setAuthError("Неверный пароль"); setLoading(false); return; }
       setLoading(false);
       onLogin({ phone: acc.phone, name: acc.name, role: "user" });
-    }, 600);
+    } catch {
+      setLoading(false);
+      setAuthError("Не удалось выполнить вход. Проверьте соединение и попробуйте снова.");
+    }
   };
 
   const currentDoc = LEGAL_DOCS.find(d => d.id === openDoc);

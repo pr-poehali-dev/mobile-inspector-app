@@ -3,7 +3,7 @@ import func2url from "../../backend/func2url.json";
 
 const API = (func2url as Record<string, string>)["app-state"];
 const POLL_INTERVAL = 10_000;
-const LS_VERSION = "v4";
+const LS_VERSION = "v5";
 
 // Сбрасываем старый кэш браузера
 (function clearOldCache() {

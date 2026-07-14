@@ -2,6 +2,7 @@ import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
+import { useSharedState } from "@/hooks/useSharedState";
 
 interface Props { onBack: () => void; }
 
@@ -16,20 +17,15 @@ const S_COLORS: Record<TicketStatus, { bg: string; text: string }> = {
   "Закрыт": { bg: "rgba(100,116,139,0.15)", text: "#64748b" },
 };
 
-const TICKETS = [
-  { id: 1, title: "Ошибка при загрузке документа PDF", desc: "При попытке загрузить файл размером более 10 МБ система выдаёт ошибку 413.", priority: "Высокий" as Priority, status: "В работе" as TicketStatus, date: "01.06.2026", comments: [
-    { author: "Поддержка", text: "Приняли в работу. Проверяем сервер загрузки.", time: "1 час назад" },
-  ]},
-  { id: 2, title: "Не приходят уведомления о новых задачах", desc: "С 30 мая перестали приходить push-уведомления.", priority: "Средний" as Priority, status: "Открыт" as TicketStatus, date: "30.05.2026", comments: [] },
-  { id: 3, title: "Запрос на добавление пользователя", desc: "Добавить нового сотрудника Петрова И.И. с ролью «Пользователь».", priority: "Низкий" as Priority, status: "Решён" as TicketStatus, date: "25.05.2026", comments: [
-    { author: "Администратор", text: "Пользователь добавлен. Учётные данные направлены на почту.", time: "25.05.2026" },
-  ]},
-];
+interface Ticket {
+  id: number; title: string; desc: string; priority: Priority; status: TicketStatus; date: string;
+  comments: { author: string; text: string; time: string }[];
+}
 
 export default function SupportModule({ onBack }: Props) {
   const { addSupportMessage } = useApp();
   const [view, setView] = useState<"list" | "create" | "ticket">("list");
-  const [tickets, setTickets] = useState(TICKETS.map(t => ({ ...t, comments: [...t.comments] })));
+  const [tickets, setTickets] = useSharedState<Ticket[]>("support_tickets", []);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState({ title: "", desc: "", priority: "Средний" as Priority });
   const [commentText, setCommentText] = useState("");
