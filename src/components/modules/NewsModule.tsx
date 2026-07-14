@@ -69,10 +69,7 @@ export default function NewsModule({ onBack }: Props) {
   const [viewedAuthorId, setViewedAuthorId] = useState<number | null>(null);
   const [editing, setEditing] = useState<NewsItem | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [blogProfiles, setBlogProfiles] = useState<Record<number, BlogProfile>>({
-    3: { banner: BANNERS[2], name: "Блог Петра Волкова", description: "Инженер по пожарной безопасности. Делюсь актуальными новостями отрасли.", location: "Казань" },
-    4: { banner: BANNERS[0], name: "Новостной центр", description: "Главный редактор корпоративной новостной ленты.", location: "Екатеринбург" },
-  });
+  const [blogProfiles, setBlogProfiles] = useSharedState<Record<number, BlogProfile>>("news_blog_profiles", {});
   const [addForm, setAddForm] = useState({ title: "", text: "", category: (categories.news || [])[0] || "Иное", important: false, imageData: "" });
   const [settingsForm, setSettingsForm] = useState<BlogProfile>({ banner: BANNERS[0], bannerImage: "", name: "", description: "", location: currentUser.location });
   const newsImageRef = useRef<HTMLInputElement>(null);

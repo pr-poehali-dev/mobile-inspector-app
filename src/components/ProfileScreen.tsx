@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp, I18N } from "@/context/AppContext";
 import { AppScreen } from "@/pages/Index";
+import { useSharedState } from "@/hooks/useSharedState";
 
 interface Props {
   onBack: () => void;
@@ -44,7 +45,7 @@ export default function ProfileScreen({ onBack, onLogout, onNavigate }: Props) {
   const [form, setForm] = useState({ name: currentUser.name, email: currentUser.email, location: currentUser.location });
   const [changePhoneStep, setChangePhoneStep] = useState<"idle" | "phone" | "code">("idle");
   const [newPhone, setNewPhone] = useState("");
-  const [notifSettings, setNotifSettings] = useState({ push: true, email: true, sms: false });
+  const [notifSettings, setNotifSettings] = useSharedState(`notif_settings_${currentUser.id}`, { push: true, email: true, sms: false });
   const fileRef = useRef<HTMLInputElement>(null);
 
   const mainRole = currentUser.roles.find(r => r !== "user") || currentUser.roles[0] || "user";

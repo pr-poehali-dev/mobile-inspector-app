@@ -15,7 +15,7 @@ export default function ChecklistModule({ onBack }: Props) {
   const currentUserEmail = currentUser?.email || "";
   const [historyEmailToast, setHistoryEmailToast] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("spheres");
-  const [spheres, setSpheres] = useState<Sphere[]>(INITIAL_SPHERES);
+  const [spheres, setSpheres] = useSharedState<Sphere[]>("checklist_spheres", INITIAL_SPHERES);
   const [selectedSphere, setSelectedSphere] = useState<Sphere | null>(null);
   const [selectedArea, setSelectedArea] = useState<Area | null>(null);
   const [selectedChecklist, setSelectedChecklist] = useState<ChecklistData | null>(null);

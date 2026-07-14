@@ -216,11 +216,11 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
   const setCategories = (v: Record<string, string[]> | ((p: Record<string, string[]>) => Record<string, string[]>)) => setCategoriesRaw(v as Record<string, string[]>);
   const [totalVisits, setTotalVisits] = useSharedState<number>("totalVisits", 0);
 
-  // ── ЛОКАЛЬНЫЕ данные (у каждого пользователя свои) ───────────────────────
-  const [purchasedDocs, setPurchasedDocs] = useStored<number[]>(`purchasedDocs_${initialUser.id}`, []);
-  const [myStats, setMyStats] = useStored<AppStats>(`myStats_${initialUser.id}`, { videos: 0, news: 0, documents: 0, courses: 0, tickets: 0, checklists: 0 });
-  const [theme, setThemeState] = useStored<ThemeMode>(`theme_${initialUser.id}`, "dark");
-  const [lang, setLang] = useStored<Lang>(`lang_${initialUser.id}`, "ru");
+  // ── Персональные данные пользователя (хранятся в БД — одинаковы на любом устройстве) ──
+  const [purchasedDocs, setPurchasedDocs] = useSharedState<number[]>(`purchasedDocs_${initialUser.id}`, []);
+  const [myStats, setMyStats] = useSharedState<AppStats>(`myStats_${initialUser.id}`, { videos: 0, news: 0, documents: 0, courses: 0, tickets: 0, checklists: 0 });
+  const [theme, setThemeState] = useSharedState<ThemeMode>(`theme_${initialUser.id}`, "dark");
+  const [lang, setLang] = useSharedState<Lang>(`lang_${initialUser.id}`, "ru");
 
   // currentUser — берём из общего списка пользователей (по телефону)
   const [currentUser, setCurrentUserState] = useState<AppUser>(initialUser);
