@@ -1,0 +1,6 @@
+{
+  "tests": [
+    {"name": "Список тем", "method": "GET", "path": "/?action=topics", "expectedStatus": 200, "expectedBody": {"topics": []}, "bodyMatcher": "partial"},
+    {"name": "OPTIONS preflight", "method": "OPTIONS", "path": "/", "expectedStatus": 200}
+  ]
+}

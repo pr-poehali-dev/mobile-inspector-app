@@ -1,9 +1,11 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import AdminBlockButton from "@/components/AdminBlockButton";
 import { useApp } from "@/context/AppContext";
-import { useSharedState } from "@/hooks/useSharedState";
+import func2url from "../../../backend/func2url.json";
+
+const DOCS_API = (func2url as Record<string, string>)["documents"];
 
 // Заявка на покупку документа (ожидает подтверждения продавца)
 interface DocPaymentRequest {
@@ -14,7 +16,7 @@ interface DocPaymentRequest {
   buyerId: number;
   buyerName: string;
   ownerId: number;
-  receiptImage: string; // base64 чека
+  receiptImage: string; // ссылка на чек (CDN) или base64
   date: string;
   status: "pending" | "confirmed" | "rejected";
 }
@@ -55,6 +57,11 @@ const DIRECTIONS = ["Все", "Входящий", "Исходящий", "Вну�
 const DOC_PRICE_YEAR = 4999;
 const DOC_PRICE_MONTH = 700;
 
+const REF_CODES = [
+  { code: "PARTNER10", active: true },
+  { code: "PROMO2026", active: true },
+];
+
 const SAMPLE_TEXT = `Настоящий документ является примером содержимого, доступного для просмотра внутри приложения всем пользователям бесплатно.
 
 1. ОБЩИЕ ПОЛОЖЕНИЯ
@@ -72,7 +79,14 @@ const SAMPLE_TEXT = `Настоящий документ является при
 4.1. Документ вступает в силу с момента подписания.
 4.2. Все изменения оформляются дополнительными соглашениями.`;
 
-
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 type ViewMode = "list" | "viewer" | "add" | "cabinet" | "request" | "requisites" | "payment" | "purchases";
 
@@ -84,10 +98,15 @@ function primaryFormat(files: DocFiles): keyof DocFiles {
 }
 
 export default function DocumentsModule({ onBack }: Props) {
-  const { currentUser, hasRole, isAdmin, categories, addRoleRequest, roleRequests, payForRole, roleGrants, bumpStat, isContentBlocked, purchaseDoc, isDocPurchased, purchasedDocs } = useApp();
+  const { currentUser, hasRole, isAdmin, categories, addRoleRequest, roleRequests, payForRole, roleGrants, bumpStat, isContentBlocked } = useApp();
   const CATEGORIES = ["Все", ...(categories.documents || [])];
 
-  const [docs, setDocs] = useSharedState<DocItem[]>("documents_all", []);
+  const [docs, setDocs] = useState<DocItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [myDocsList, setMyDocsList] = useState<DocItem[]>([]);
+  const [purchasedIds, setPurchasedIds] = useState<number[]>([]);
+  const [incomingRequests, setIncomingRequests] = useState<DocPaymentRequest[]>([]);
+  const [myRequests, setMyRequests] = useState<DocPaymentRequest[]>([]);
   const [catFilter, setCatFilter] = useState("Все");
   const [dirFilter, setDirFilter] = useState("Все");
   const [search, setSearch] = useState("");
@@ -96,7 +115,7 @@ export default function DocumentsModule({ onBack }: Props) {
   const [editing, setEditing] = useState<DocItem | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [requisites, setRequisites] = useState({ inn: "", account: "", bank: "", card: "", bic: "", qrUrl: "" });
-  const [addForm, setAddForm] = useState({ name: "", category: (categories.documents || [])[0] || "Договоры", docType: (categories.doc_types || [])[0] || "Внутренний", direction: "Внутренний", paid: false, price: "", content: "", files: {} as DocFiles });
+  const [addForm, setAddForm] = useState({ name: "", category: (categories.documents || [])[0] || "Договоры", docType: (categories.doc_types || [])[0] || "Внутренний", direction: "Внутренний", paid: false, price: "", content: "", files: {} as DocFiles, filesData: {} as Record<keyof DocFiles, string> });
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [emailModal, setEmailModal] = useState(false);
   const [emailInput, setEmailInput] = useState("");
@@ -105,12 +124,6 @@ export default function DocumentsModule({ onBack }: Props) {
   const [refCode, setRefCode] = useState("");
   const [refCodeStatus, setRefCodeStatus] = useState<"idle" | "valid" | "invalid">("idle");
 
-  // Список действующих реферальных кодов (shared store)
-  const [refCodes] = useSharedState<{ code: string; active: boolean }[]>("referral_codes", [
-    { code: "PARTNER10", active: true },
-    { code: "PROMO2026", active: true },
-  ]);
-
   const discountPct = refCodeStatus === "valid" ? 0.10 : 0;
   const docPriceYear  = Math.round(DOC_PRICE_YEAR  * (1 - discountPct));
   const docPriceMonth = Math.round(DOC_PRICE_MONTH * (1 - discountPct));
@@ -118,12 +131,10 @@ export default function DocumentsModule({ onBack }: Props) {
   const checkRefCode = (code: string) => {
     const trimmed = code.trim().toUpperCase();
     if (!trimmed) { setRefCodeStatus("idle"); return; }
-    const found = refCodes.find(r => r.code === trimmed && r.active);
+    const found = REF_CODES.find(r => r.code === trimmed && r.active);
     setRefCodeStatus(found ? "valid" : "invalid");
   };
 
-  // Система оплаты с чеком — общий список заявок
-  const [paymentRequests, setPaymentRequests] = useSharedState<DocPaymentRequest[]>("doc_payment_requests", []);
   // Модалка покупки
   const [buyModal, setBuyModal] = useState<DocItem | null>(null);
   const [receiptImage, setReceiptImage] = useState("");
@@ -136,20 +147,66 @@ export default function DocumentsModule({ onBack }: Props) {
   const xlsxRef = useRef<HTMLInputElement>(null);
 
   const isDocumentor = isAdmin || hasRole("documentor");
+  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
 
-  // Документ считается оплаченным если: он в глобальном purchasedDocs ИЛИ
-  // есть подтверждённая заявка на покупку для этого пользователя
+  const loadFeed = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${DOCS_API}?action=feed`);
+      const data = await res.json();
+      setDocs(Array.isArray(data.documents) ? data.documents : []);
+    } catch {
+      showToast("⚠️ Не удалось загрузить документы. Проверьте соединение.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadMy = useCallback(async () => {
+    try {
+      const res = await fetch(`${DOCS_API}?action=my&userId=${currentUser.id}`);
+      const data = await res.json();
+      setMyDocsList(Array.isArray(data.documents) ? data.documents : []);
+    } catch {
+      showToast("⚠️ Не удалось загрузить ваши документы");
+    }
+  }, [currentUser.id]);
+
+  const loadPurchases = useCallback(async () => {
+    try {
+      const res = await fetch(`${DOCS_API}?action=purchases&userId=${currentUser.id}`);
+      const data = await res.json();
+      setPurchasedIds(Array.isArray(data.purchasedIds) ? data.purchasedIds : []);
+    } catch { /* ignore */ }
+  }, [currentUser.id]);
+
+  const loadIncoming = useCallback(async () => {
+    try {
+      const res = await fetch(`${DOCS_API}?action=incomingRequests&ownerId=${currentUser.id}`);
+      const data = await res.json();
+      setIncomingRequests(Array.isArray(data.requests) ? data.requests : []);
+    } catch { /* ignore */ }
+  }, [currentUser.id]);
+
+  const loadMyRequests = useCallback(async () => {
+    try {
+      const res = await fetch(`${DOCS_API}?action=myRequests&userId=${currentUser.id}`);
+      const data = await res.json();
+      setMyRequests(Array.isArray(data.requests) ? data.requests : []);
+    } catch { /* ignore */ }
+  }, [currentUser.id]);
+
+  useEffect(() => { loadFeed(); loadPurchases(); loadMyRequests(); }, [loadFeed, loadPurchases, loadMyRequests]);
+  useEffect(() => { if (view === "cabinet") { loadMy(); loadIncoming(); } }, [view, loadMy, loadIncoming]);
+
+  // Документ считается оплаченным если: он в purchasedIds ИЛИ есть подтверждённая заявка на покупку
   const isDocAccessible = (docId: number) =>
-    isDocPurchased(docId) ||
-    paymentRequests.some(r => r.docId === docId && r.buyerId === currentUser.id && r.status === "confirmed");
+    purchasedIds.includes(docId) ||
+    myRequests.some(r => r.docId === docId && r.status === "confirmed");
 
   // Ожидающая заявка текущего пользователя по документу
   const myPendingRequest = (docId: number) =>
-    paymentRequests.find(r => r.docId === docId && r.buyerId === currentUser.id && r.status === "pending");
-
-  // Заявки входящие к документоведу (продавцу)
-  const incomingRequests = paymentRequests.filter(r => r.ownerId === currentUser.id && r.status === "pending");
-  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
+    myRequests.find(r => r.docId === docId && r.status === "pending");
 
   // Заявка и срок подписки документоведа
   const myDocRequest = roleRequests.filter(r => r.userId === currentUser.id && r.role === "documentor").slice(-1)[0];
@@ -164,7 +221,7 @@ export default function DocumentsModule({ onBack }: Props) {
   }, [myGrant]);
   const subscriptionActive = isAdmin || (daysLeft !== null && daysLeft > 0);
 
-  const myDocs = useMemo(() => docs.filter(d => d.ownerId === currentUser.id), [docs, currentUser.id]);
+  const myDocs = myDocsList;
 
   // В общий поток попадают документы только тех документоведов, у кого активна подписка.
   // У владельца с истёкшей подпиской документы остаются в кабинете, но скрыты из ленты.
@@ -183,12 +240,23 @@ export default function DocumentsModule({ onBack }: Props) {
     d.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleFile = (fmt: keyof DocFiles) => (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFile = (fmt: keyof DocFiles) => async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) setAddForm(prev => ({ ...prev, files: { ...prev.files, [fmt]: f.name } }));
+    if (f) {
+      try {
+        const dataUrl = await fileToDataUrl(f);
+        setAddForm(prev => ({ ...prev, files: { ...prev.files, [fmt]: f.name }, filesData: { ...prev.filesData, [fmt]: dataUrl } }));
+      } catch {
+        showToast("⚠️ Не удалось прочитать файл");
+      }
+    }
     e.target.value = "";
   };
-  const removeFile = (fmt: keyof DocFiles) => setAddForm(prev => { const nf = { ...prev.files }; delete nf[fmt]; return { ...prev, files: nf }; });
+  const removeFile = (fmt: keyof DocFiles) => setAddForm(prev => {
+    const nf = { ...prev.files }; delete nf[fmt];
+    const nfd = { ...prev.filesData }; delete nfd[fmt];
+    return { ...prev, files: nf, filesData: nfd };
+  });
 
   const handleQr = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -199,29 +267,87 @@ export default function DocumentsModule({ onBack }: Props) {
     e.target.value = "";
   };
 
-  const saveDoc = () => {
+  const saveDoc = async () => {
     if (!addForm.name.trim()) return;
-    const files = Object.keys(addForm.files).length ? addForm.files : { pdf: `${addForm.name}.pdf` };
-    if (editing) {
-      setDocs(prev => prev.map(d => d.id === editing.id ? { ...d, name: addForm.name, category: addForm.category, docType: addForm.docType, direction: addForm.direction, paid: addForm.paid, price: addForm.paid ? Number(addForm.price) || 0 : 0, content: addForm.content || d.content, files } : d));
-      showToast("✅ Документ обновлён");
-    } else {
-      setDocs(prev => [{ id: Date.now(), name: addForm.name, category: addForm.category, docType: addForm.docType, direction: addForm.direction, dept: currentUser.name, date: new Date().toLocaleDateString("ru-RU"), size: "—", ownerId: currentUser.id, ownerName: currentUser.name, paid: addForm.paid, price: addForm.paid ? Number(addForm.price) || 0 : 0, content: addForm.content || SAMPLE_TEXT, files }, ...prev]);
-      bumpStat("documents", 1);
-      showToast("✅ Документ опубликован");
+    try {
+      if (editing) {
+        await fetch(DOCS_API, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "update", id: editing.id, userId: currentUser.id,
+            name: addForm.name, category: addForm.category, docType: addForm.docType, direction: addForm.direction,
+            paid: addForm.paid, price: addForm.paid ? Number(addForm.price) || 0 : 0, content: addForm.content,
+            pdfData: addForm.filesData.pdf, docxData: addForm.filesData.docx, xlsxData: addForm.filesData.xlsx,
+          }),
+        });
+        showToast("✅ Документ обновлён");
+      } else {
+        await fetch(DOCS_API, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "publish", ownerId: currentUser.id, ownerName: currentUser.name,
+            name: addForm.name, category: addForm.category, docType: addForm.docType, direction: addForm.direction,
+            paid: addForm.paid, price: addForm.paid ? Number(addForm.price) || 0 : 0, content: addForm.content || SAMPLE_TEXT,
+            pdfData: addForm.filesData.pdf, docxData: addForm.filesData.docx, xlsxData: addForm.filesData.xlsx,
+          }),
+        });
+        bumpStat("documents", 1);
+        showToast("✅ Документ опубликован");
+      }
+      await Promise.all([loadFeed(), loadMy()]);
+    } catch {
+      showToast("⚠️ Не удалось сохранить документ");
     }
-    setAddForm({ name: "", category: (categories.documents || [])[0] || "Договоры", docType: (categories.doc_types || [])[0] || "Внутренний", direction: "Внутренний", paid: false, price: "", content: "", files: {} });
+    setAddForm({ name: "", category: (categories.documents || [])[0] || "Договоры", docType: (categories.doc_types || [])[0] || "Внутренний", direction: "Внутренний", paid: false, price: "", content: "", files: {}, filesData: {} as Record<keyof DocFiles, string> });
     setEditing(null);
     setView("cabinet");
   };
 
-  const deleteDoc = (id: number) => { setDocs(prev => prev.filter(d => d.id !== id)); bumpStat("documents", -1); showToast("🗑️ Удалено"); };
-  const startEdit = (d: DocItem) => { setEditing(d); setAddForm({ name: d.name, category: d.category, docType: d.docType || (categories.doc_types || [])[0] || "Внутренний", direction: d.direction, paid: d.paid, price: String(d.price), content: d.content, files: { ...d.files } }); setView("add"); };
+  const deleteDoc = async (id: number) => {
+    setMyDocsList(prev => prev.filter(d => d.id !== id));
+    setDocs(prev => prev.filter(d => d.id !== id));
+    try {
+      await fetch(DOCS_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "delete", id, userId: currentUser.id }) });
+      bumpStat("documents", -1);
+      showToast("🗑️ Удалено");
+    } catch {
+      showToast("⚠️ Не удалось удалить документ");
+    }
+  };
+  const startEdit = (d: DocItem) => { setEditing(d); setAddForm({ name: d.name, category: d.category, docType: d.docType || (categories.doc_types || [])[0] || "Внутренний", direction: d.direction, paid: d.paid, price: String(d.price), content: d.content, files: { ...d.files }, filesData: {} as Record<keyof DocFiles, string> }); setView("add"); };
 
   const ownerRequisites = (ownerId: number) => {
     // В демо реквизиты хранятся локально только у текущего пользователя; для остальных — заглушка владельца
     if (ownerId === currentUser.id) return requisites;
     return { inn: "", account: "40817810099910004321", bank: "ПАО Сбербанк", card: "", bic: "044525225", qrUrl: "" };
+  };
+
+  const confirmPurchase = async (requestId: number) => {
+    setIncomingRequests(prev => prev.filter(r => r.id !== requestId));
+    try {
+      await fetch(DOCS_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "confirmPurchase", requestId, ownerId: currentUser.id }) });
+      showToast(`✅ Оплата подтверждена — покупатель получил доступ`);
+    } catch {
+      showToast("⚠️ Не удалось подтвердить оплату");
+    }
+  };
+
+  const rejectPurchase = async (requestId: number) => {
+    setIncomingRequests(prev => prev.filter(r => r.id !== requestId));
+    try {
+      await fetch(DOCS_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "rejectPurchase", requestId, ownerId: currentUser.id }) });
+      showToast("Заявка отклонена");
+    } catch {
+      showToast("⚠️ Не удалось отклонить заявку");
+    }
+  };
+
+  const openFile = (url?: string) => {
+    if (url && url.startsWith("https://")) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } else if (url) {
+      showToast(`📥 Скачивание (${url})`);
+    }
   };
 
   // ── REQUEST ROLE ──
@@ -433,16 +559,10 @@ export default function DocumentsModule({ onBack }: Props) {
                   </div>
                 )}
                 <div className="flex gap-2">
-                  <button onClick={() => {
-                    setPaymentRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: "confirmed" } : r));
-                    showToast(`✅ Оплата подтверждена — покупатель получил доступ`);
-                  }} className="flex-1 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5" style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: 'white' }}>
+                  <button onClick={() => confirmPurchase(req.id)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5" style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: 'white' }}>
                     <Icon name="CheckCircle" size={15} />Подтвердить оплату
                   </button>
-                  <button onClick={() => {
-                    setPaymentRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: "rejected" } : r));
-                    showToast("Заявка отклонена");
-                  }} className="px-4 py-2.5 rounded-xl text-sm font-semibold" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444' }}>
+                  <button onClick={() => rejectPurchase(req.id)} className="px-4 py-2.5 rounded-xl text-sm font-semibold" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444' }}>
                     <Icon name="X" size={15} />
                   </button>
                 </div>
@@ -539,7 +659,6 @@ export default function DocumentsModule({ onBack }: Props) {
     const pendingReq = myPendingRequest(selected.id);
     const hasPdf = !!selected.files.pdf;
     const availableFormats = (Object.keys(selected.files) as (keyof DocFiles)[]);
-    const ownerReq = ownerRequisites(selected.ownerId);
     const blockSelect: React.CSSProperties = { userSelect: "none", WebkitUserSelect: "none", MozUserSelect: "none", msUserSelect: "none" };
     return (
       <div className="min-h-screen relative z-10 animate-fade-in">
@@ -611,7 +730,7 @@ export default function DocumentsModule({ onBack }: Props) {
                         const meta = FORMAT_META[fmt];
                         const avail = !!selected.files[fmt];
                         return (
-                          <button key={fmt} disabled={!avail} onClick={() => { setDownloadOpen(false); showToast(`📥 Скачивание ${meta.label} (${selected.files[fmt]})`); }} className="py-2.5 rounded-xl text-xs font-medium flex flex-col items-center gap-1 disabled:opacity-30" style={{ background: avail ? `${meta.color}15` : 'rgba(255,255,255,0.04)', border: `1px solid ${avail ? `${meta.color}40` : 'rgba(255,255,255,0.08)'}`, color: avail ? meta.color : 'rgba(255,255,255,0.4)' }}>
+                          <button key={fmt} disabled={!avail} onClick={() => { setDownloadOpen(false); openFile(selected.files[fmt]); }} className="py-2.5 rounded-xl text-xs font-medium flex flex-col items-center gap-1 disabled:opacity-30" style={{ background: avail ? `${meta.color}15` : 'rgba(255,255,255,0.04)', border: `1px solid ${avail ? `${meta.color}40` : 'rgba(255,255,255,0.08)'}`, color: avail ? meta.color : 'rgba(255,255,255,0.4)' }}>
                             <Icon name={meta.icon} size={16} color={avail ? meta.color : 'rgba(255,255,255,0.4)'} />{meta.label}
                           </button>
                         );
@@ -683,11 +802,19 @@ export default function DocumentsModule({ onBack }: Props) {
                   {receiptImage && <button onClick={e => { e.stopPropagation(); setReceiptImage(""); }} className="p-1"><Icon name="X" size={14} color="rgba(255,255,255,0.4)" /></button>}
                 </button>
                 <button
-                  onClick={() => {
-                    if (!receiptImage) { showToast("Сначала загрузите чек об оплате"); return; }
-                    setPaymentRequests(prev => [...prev, { id: Date.now(), docId: buyModal.id, docName: buyModal.name, price: buyModal.price, buyerId: currentUser.id, buyerName: currentUser.name, ownerId: buyModal.ownerId, receiptImage, date: new Date().toLocaleString("ru-RU"), status: "pending" }]);
-                    setReceiptSent(true);
-                    showToast("✅ Уведомление об оплате отправлено продавцу");
+                  onClick={async () => {
+                    if (!receiptImage || !buyModal) { showToast("Сначала загрузите чек об оплате"); return; }
+                    try {
+                      await fetch(DOCS_API, {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "buyRequest", docId: buyModal.id, buyerId: currentUser.id, buyerName: currentUser.name, receiptData: receiptImage }),
+                      });
+                      setReceiptSent(true);
+                      await loadMyRequests();
+                      showToast("✅ Уведомление об оплате отправлено продавцу");
+                    } catch {
+                      showToast("⚠️ Не удалось отправить уведомление об оплате");
+                    }
                   }}
                   className="w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2"
                   style={{ background: receiptImage ? 'linear-gradient(135deg,#10b981,#059669)' : 'rgba(255,255,255,0.08)', opacity: receiptImage ? 1 : 0.5 }}
@@ -706,7 +833,7 @@ export default function DocumentsModule({ onBack }: Props) {
 
   // ── МОИ ПОКУПКИ ──
   if (view === "purchases") {
-    const purchased = docs.filter(d => purchasedDocs.includes(d.id));
+    const purchased = docs.filter(d => purchasedIds.includes(d.id));
     return (
       <div className="min-h-screen relative z-10 animate-fade-in">
         {toast && <Toast msg={toast} />}
@@ -751,7 +878,7 @@ export default function DocumentsModule({ onBack }: Props) {
             <button onClick={onBack} className="p-2 rounded-xl hover:bg-white/10 transition-colors flex-shrink-0"><Icon name="ArrowLeft" size={20} color="white" /></button>
             <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(16,185,129,0.2)', border: '1px solid rgba(16,185,129,0.3)' }}><Icon name="FolderOpen" size={16} color="#10b981" /></div>
             <h1 className="text-base font-bold text-white flex-1">Документооборот</h1>
-            <button onClick={() => setView("purchases")} className="p-2 rounded-xl hover:bg-white/10 transition-colors relative" title="Мои покупки"><Icon name="ShoppingBag" size={18} color="#10b981" />{purchasedDocs.length > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full flex items-center justify-center text-white font-bold" style={{ background: '#10b981', fontSize: '9px' }}>{purchasedDocs.length}</span>}</button>
+            <button onClick={() => setView("purchases")} className="p-2 rounded-xl hover:bg-white/10 transition-colors relative" title="Мои покупки"><Icon name="ShoppingBag" size={18} color="#10b981" />{purchasedIds.length > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full flex items-center justify-center text-white font-bold" style={{ background: '#10b981', fontSize: '9px' }}>{purchasedIds.length}</span>}</button>
             {isDocumentor && <button onClick={() => setView("cabinet")} className="p-2 rounded-xl hover:bg-white/10 transition-colors"><Icon name="LayoutDashboard" size={18} color="#10b981" /></button>}
           </div>
           {isDocumentor ? (
@@ -783,33 +910,39 @@ export default function DocumentsModule({ onBack }: Props) {
         <div className="flex gap-2">
           {DIRECTIONS.map(dir => <button key={dir} onClick={() => setDirFilter(dir)} className="px-3 py-1.5 rounded-xl text-xs font-medium flex-shrink-0 transition-all" style={{ background: dirFilter === dir ? 'rgba(27,111,255,0.25)' : 'rgba(255,255,255,0.05)', border: `1px solid ${dirFilter === dir ? 'rgba(27,111,255,0.4)' : 'rgba(255,255,255,0.08)'}`, color: dirFilter === dir ? '#4d8fff' : 'rgba(255,255,255,0.5)' }}>{dir}</button>)}
         </div>
-        {filtered.map((doc, i) => {
-          const fi = FORMAT_META[primaryFormat(doc.files)];
-          return (
-            <div key={doc.id} className="relative w-full glass rounded-2xl p-4 animate-fade-up opacity-0 hover:border-white/20 transition-all" style={{ animationDelay: `${i * 0.05}s`, animationFillMode: 'forwards' }}>
-              <button onClick={() => { setDownloadOpen(false); setSelected(doc); setView("viewer"); }} className="w-full text-left">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${fi.color}15`, border: `1px solid ${fi.color}30` }}><Icon name={fi.icon} size={20} color={fi.color} /></div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white leading-snug mb-1 pr-8">{doc.name}</p>
-                    <div className="flex flex-wrap gap-2 text-xs text-white/40">
-                      <span className="flex items-center gap-1"><Icon name="User" size={11} />{doc.ownerName}</span>
-                      <span className="flex items-center gap-1"><Icon name="Calendar" size={11} />{doc.date}</span>
+        {loading ? (
+          <div className="text-center py-14"><Icon name="Loader2" size={28} color="rgba(255,255,255,0.3)" className="mx-auto mb-3 animate-spin" /><p className="text-white/30 text-sm">Загружаем документы...</p></div>
+        ) : (
+          <>
+            {filtered.map((doc, i) => {
+              const fi = FORMAT_META[primaryFormat(doc.files)];
+              return (
+                <div key={doc.id} className="relative w-full glass rounded-2xl p-4 animate-fade-up opacity-0 hover:border-white/20 transition-all" style={{ animationDelay: `${i * 0.05}s`, animationFillMode: 'forwards' }}>
+                  <button onClick={() => { setDownloadOpen(false); setSelected(doc); setView("viewer"); }} className="w-full text-left">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${fi.color}15`, border: `1px solid ${fi.color}30` }}><Icon name={fi.icon} size={20} color={fi.color} /></div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-white leading-snug mb-1 pr-8">{doc.name}</p>
+                        <div className="flex flex-wrap gap-2 text-xs text-white/40">
+                          <span className="flex items-center gap-1"><Icon name="User" size={11} />{doc.ownerName}</span>
+                          <span className="flex items-center gap-1"><Icon name="Calendar" size={11} />{doc.date}</span>
+                        </div>
+                        <div className="flex gap-2 mt-1.5 items-center flex-wrap">
+                          <span className="tag text-xs">{doc.category}</span>
+                          {doc.docType && <span className="text-xs px-2 py-0.5 rounded-lg" style={{ background: 'rgba(6,182,212,0.12)', color: '#06b6d4', border: '1px solid rgba(6,182,212,0.25)' }}>{doc.docType}</span>}
+                          {(Object.keys(doc.files) as (keyof DocFiles)[]).map(f => <span key={f} className="text-xs px-1.5 py-0.5 rounded" style={{ background: `${FORMAT_META[f].color}18`, color: FORMAT_META[f].color }}>{FORMAT_META[f].label}</span>)}
+                          {doc.paid ? <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>{doc.price} ₽</span> : <span className="text-xs px-2 py-0.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>Бесплатно</span>}
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex gap-2 mt-1.5 items-center flex-wrap">
-                      <span className="tag text-xs">{doc.category}</span>
-                      {doc.docType && <span className="text-xs px-2 py-0.5 rounded-lg" style={{ background: 'rgba(6,182,212,0.12)', color: '#06b6d4', border: '1px solid rgba(6,182,212,0.25)' }}>{doc.docType}</span>}
-                      {(Object.keys(doc.files) as (keyof DocFiles)[]).map(f => <span key={f} className="text-xs px-1.5 py-0.5 rounded" style={{ background: `${FORMAT_META[f].color}18`, color: FORMAT_META[f].color }}>{FORMAT_META[f].label}</span>)}
-                      {doc.paid ? <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>{doc.price} ₽</span> : <span className="text-xs px-2 py-0.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>Бесплатно</span>}
-                    </div>
-                  </div>
+                  </button>
+                  <div className="absolute top-3 right-3"><AdminBlockButton kind="document" id={doc.id} authorId={doc.ownerId} size={13} /></div>
                 </div>
-              </button>
-              <div className="absolute top-3 right-3"><AdminBlockButton kind="document" id={doc.id} authorId={doc.ownerId} size={13} /></div>
-            </div>
-          );
-        })}
-        {filtered.length === 0 && <div className="text-center py-14"><Icon name="FolderX" size={32} color="rgba(255,255,255,0.2)" className="mx-auto mb-3" /><p className="text-white/30 text-sm">Документы не найдены</p></div>}
+              );
+            })}
+            {filtered.length === 0 && <div className="text-center py-14"><Icon name="FolderX" size={32} color="rgba(255,255,255,0.2)" className="mx-auto mb-3" /><p className="text-white/30 text-sm">Документы не найдены</p></div>}
+          </>
+        )}
       </div>
     </div>
   );

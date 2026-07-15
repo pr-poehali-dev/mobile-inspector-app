@@ -1,8 +1,10 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
-import { useSharedState } from "@/hooks/useSharedState";
+import func2url from "../../../backend/func2url.json";
+
+const RFP_API = (func2url as Record<string, string>)["rfp"];
 
 // Сообщение чата между заказчиком и поставщиком
 interface RfpChatMessage { id: number; rfpId: number; supplierId: number; fromUserId: number; text: string; date: string; }
@@ -22,6 +24,11 @@ const STATUS_COLORS: Record<Status, { bg: string; text: string; border: string }
 
 const EXECUTOR_PRICE_YEAR = 4999;
 const EXECUTOR_PRICE_MONTH = 700;
+
+const REF_CODES = [
+  { code: "PARTNER10", active: true },
+  { code: "PROMO2026", active: true },
+];
 
 interface RFP {
   id: number;
@@ -47,6 +54,7 @@ interface Supplier {
   site: string;
   completedOrders: number; // завершённые заказы → рейтинг доверия
   verified: boolean;       // «Проверенный исполнитель»
+  trustRating?: number;    // рейтинг доверия, вычисленный на бэкенде
 }
 
 interface Proposal {
@@ -63,10 +71,17 @@ interface Proposal {
   date: string;
 }
 
-// Базовый рейтинг доверия: 3.5 + 0.1 за завершённый заказ (макс 5.0)
-const trustRating = (completed: number) => Math.min(5, 3.5 + completed * 0.1);
+// Базовый рейтинг доверия (fallback, если бэкенд не прислал trustRating): 3.5 + 0.1 за завершённый заказ (макс 5.0)
+const trustRatingFallback = (completed: number) => Math.min(5, 3.5 + completed * 0.1);
 
-
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 type ViewMode = "list" | "create" | "edit" | "compare" | "upload" | "cabinet" | "request" | "payment" | "supplier" | "supplierEdit" | "chat";
 
@@ -88,38 +103,37 @@ export default function RFPModule({ onBack }: Props) {
   const [selectedRfp, setSelectedRfp] = useState<RFP | null>(null);
   const [editingRfp, setEditingRfp] = useState<RFP | null>(null);
   const [viewedSupplierId, setViewedSupplierId] = useState<number | null>(null);
-  // Чат заказчик↔поставщик и уведомления о заинтересованности (сохраняются)
-  const [chatMessages, setChatMessages] = useSharedState<RfpChatMessage[]>("rfp_chats", []);
-  const [interestNotices, setInterestNotices] = useSharedState<InterestNotice[]>("rfp_interests", []);
+  const [viewedSupplier, setViewedSupplier] = useState<Supplier | null>(null);
+  // Чат заказчик↔поставщик и уведомления о заинтересованности (с сервера)
+  const [chatMessages, setChatMessages] = useState<RfpChatMessage[]>([]);
+  const [interestNotices, setInterestNotices] = useState<InterestNotice[]>([]);
   const [chatPeer, setChatPeer] = useState<{ rfpId: number; supplierId: number; company: string } | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [form, setForm] = useState({ title: "", desc: "", deadline: "", category: "", location: "", workTerm: "", contactPhone: "" });
   const [rfpSearch, setRfpSearch] = useState("");
-  const [rfpList, setRfpList] = useSharedState<RFP[]>("rfp_list", []);
-  const [suppliers, setSuppliers] = useSharedState<Supplier[]>("rfp_suppliers", []);
-  const [proposals, setProposals] = useSharedState<Proposal[]>("rfp_proposals", []);
+  const [rfpList, setRfpList] = useState<RFP[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [mySupplier, setMySupplier] = useState<Supplier | null>(null);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [uploadCompany, setUploadCompany] = useState("");
   const [uploadPrice, setUploadPrice] = useState("");
   const [uploadDelivery, setUploadDelivery] = useState("");
-  const [uploadFile, setUploadFile] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadFileName, setUploadFileName] = useState("");
   // Модалка «Связаться с заказчиком» при нажатии на карточку победителя
   const [winnerContactModal, setWinnerContactModal] = useState<InterestNotice | null>(null);
   const [requestPhone, setRequestPhone] = useState(currentUser.phone || "");
   const [requestAgreed, setRequestAgreed] = useState(false);
   const [refCode, setRefCode] = useState("");
   const [refCodeStatus, setRefCodeStatus] = useState<"idle" | "valid" | "invalid">("idle");
-  const [refCodes] = useSharedState<{ code: string; active: boolean }[]>("referral_codes", [
-    { code: "PARTNER10", active: true },
-    { code: "PROMO2026", active: true },
-  ]);
   const discountPct = refCodeStatus === "valid" ? 0.10 : 0;
   const execPriceYear  = Math.round(EXECUTOR_PRICE_YEAR  * (1 - discountPct));
   const execPriceMonth = Math.round(EXECUTOR_PRICE_MONTH * (1 - discountPct));
   const checkRefCode = (code: string) => {
     const t = code.trim().toUpperCase();
     if (!t) { setRefCodeStatus("idle"); return; }
-    setRefCodeStatus(refCodes.find(r => r.code === t && r.active) ? "valid" : "invalid");
+    setRefCodeStatus(REF_CODES.find(r => r.code === t && r.active) ? "valid" : "invalid");
   };
   const [supplierForm, setSupplierForm] = useState<Supplier | null>(null);
   // Окно контакта с выбранным победителем
@@ -138,8 +152,87 @@ export default function RFPModule({ onBack }: Props) {
   }, [myGrant]);
   const subscriptionActive = isAdmin || (myDaysLeft !== null && myDaysLeft > 0);
 
-  // Профиль текущего исполнителя (если он поставщик)
-  const mySupplier = suppliers.find(s => s.id === currentUser.id) || null;
+  // ── Загрузка списка RFP ──
+  const loadRfps = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${RFP_API}?action=list`);
+      const data = await res.json();
+      setRfpList(Array.isArray(data.rfps) ? data.rfps : []);
+    } catch {
+      showToast("⚠️ Не удалось загрузить запросы. Проверьте соединение.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // ── Загрузка предложений по конкретному RFP ──
+  const loadProposals = useCallback(async (rfpId: number) => {
+    try {
+      const res = await fetch(`${RFP_API}?action=proposals&rfpId=${rfpId}`);
+      const data = await res.json();
+      setProposals(Array.isArray(data.proposals) ? data.proposals : []);
+    } catch {
+      showToast("⚠️ Не удалось загрузить предложения");
+    }
+  }, []);
+
+  // ── Загрузка профиля поставщика (текущего пользователя) ──
+  const loadMySupplier = useCallback(async () => {
+    try {
+      const res = await fetch(`${RFP_API}?action=supplier&userId=${currentUser.id}`);
+      const data = await res.json();
+      setMySupplier(data.supplier || null);
+    } catch { /* ignore */ }
+  }, [currentUser.id]);
+
+  // ── Загрузка профиля поставщика по id (для просмотра чужого профиля) ──
+  const loadSupplierById = useCallback(async (userId: number) => {
+    try {
+      const res = await fetch(`${RFP_API}?action=supplier&userId=${userId}`);
+      const data = await res.json();
+      setViewedSupplier(data.supplier || null);
+    } catch {
+      showToast("⚠️ Не удалось загрузить профиль поставщика");
+    }
+  }, []);
+
+  // ── Загрузка сообщений чата ──
+  const loadChat = useCallback(async (rfpId: number, supplierId: number) => {
+    try {
+      const res = await fetch(`${RFP_API}?action=chat&rfpId=${rfpId}&supplierId=${supplierId}`);
+      const data = await res.json();
+      setChatMessages(Array.isArray(data.messages) ? data.messages : []);
+    } catch {
+      showToast("⚠️ Не удалось загрузить чат");
+    }
+  }, []);
+
+  // ── Загрузка уведомлений о заинтересованности ──
+  const loadInterests = useCallback(async () => {
+    try {
+      const res = await fetch(`${RFP_API}?action=interests&supplierId=${currentUser.id}`);
+      const data = await res.json();
+      setInterestNotices(Array.isArray(data.interests) ? data.interests : []);
+    } catch { /* ignore */ }
+  }, [currentUser.id]);
+
+  useEffect(() => { loadRfps(); loadMySupplier(); loadInterests(); }, [loadRfps, loadMySupplier, loadInterests]);
+
+  useEffect(() => {
+    if (selectedRfp) loadProposals(selectedRfp.id);
+  }, [selectedRfp, loadProposals]);
+
+  useEffect(() => {
+    if (viewedSupplierId !== null) {
+      if (viewedSupplierId === currentUser.id && mySupplier) setViewedSupplier(mySupplier);
+      else loadSupplierById(viewedSupplierId);
+    }
+  }, [viewedSupplierId, currentUser.id, mySupplier, loadSupplierById]);
+
+  useEffect(() => {
+    if (chatPeer) loadChat(chatPeer.rfpId, chatPeer.supplierId);
+  }, [chatPeer, loadChat]);
 
   const myRfps = rfpList.filter(r => r.ownerId === currentUser.id);
   const myProposals = proposals.filter(p => p.supplierId === currentUser.id);
@@ -163,18 +256,39 @@ export default function RFPModule({ onBack }: Props) {
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) setUploadFile(f.name);
+    if (f) { setUploadFile(f); setUploadFileName(f.name); }
     e.target.value = "";
   };
 
-  const saveRfp = (status: Status) => {
+  const saveRfp = async (status: Status) => {
     if (!form.title) return;
-    if (editingRfp) {
-      setRfpList(prev => prev.map(r => r.id === editingRfp.id ? { ...r, title: form.title, desc: form.desc, category: form.category || "Без категории", location: form.location, workTerm: form.workTerm, deadline: form.deadline || r.deadline, contactPhone: form.contactPhone } : r));
-      showToast("✅ Запрос обновлён");
-    } else {
-      setRfpList(prev => [{ id: Date.now(), title: form.title, desc: form.desc, category: form.category || "Без категории", location: form.location, workTerm: form.workTerm, deadline: form.deadline || "—", status, proposals: 0, ownerId: currentUser.id, contactPhone: form.contactPhone }, ...prev]);
-      showToast(status === "Черновик" ? "💾 Черновик сохранён" : "🚀 Запрос опубликован");
+    try {
+      if (editingRfp) {
+        await fetch(RFP_API, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "updateRfp", id: editingRfp.id, ownerId: currentUser.id,
+            title: form.title, desc: form.desc, category: form.category || "Без категории",
+            location: form.location, workTerm: form.workTerm, deadline: form.deadline || editingRfp.deadline,
+            contactPhone: form.contactPhone,
+          }),
+        });
+        showToast("✅ Запрос обновлён");
+      } else {
+        await fetch(RFP_API, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "createRfp", ownerId: currentUser.id,
+            title: form.title, desc: form.desc, category: form.category || "Без категории",
+            location: form.location, workTerm: form.workTerm, deadline: form.deadline || "—",
+            status, contactPhone: form.contactPhone,
+          }),
+        });
+        showToast(status === "Черновик" ? "💾 Черновик сохранён" : "🚀 Запрос опубликован");
+      }
+      await loadRfps();
+    } catch {
+      showToast("⚠️ Не удалось сохранить запрос");
     }
     setForm({ title: "", desc: "", deadline: "", category: "", location: "", workTerm: "", contactPhone: "" });
     setEditingRfp(null);
@@ -186,33 +300,124 @@ export default function RFPModule({ onBack }: Props) {
     setForm({ title: r.title, desc: r.desc, deadline: r.deadline.includes("-") ? r.deadline : "", category: r.category, location: r.location, workTerm: r.workTerm, contactPhone: r.contactPhone || "" });
     setView("edit");
   };
-  const setRfpStatus = (id: number, status: Status) => { setRfpList(prev => prev.map(r => r.id === id ? { ...r, status } : r)); showToast(status === "Активен" ? "Запрос активен" : "Запрос скрыт"); };
-  const deleteRfp = (id: number) => { setRfpList(prev => prev.filter(r => r.id !== id)); showToast("🗑️ Запрос удалён"); };
 
-  const submitProposal = () => {
-    if (!selectedRfp || !uploadCompany || !uploadPrice) return;
-    const days = parseInt(uploadDelivery) || 0;
-    const prop: Proposal = { id: Date.now(), rfpId: selectedRfp.id, rfpTitle: selectedRfp.title, supplierId: currentUser.id, company: uploadCompany, price: Number(uploadPrice.replace(/\D/g, "")) || 0, delivery: uploadDelivery || "—", deliveryDays: days, file: uploadFile || "предложение.pdf", manualRating: null, date: new Date().toLocaleDateString("ru-RU") };
-    setProposals(prev => [prop, ...prev]);
-    setRfpList(prev => prev.map(r => r.id === selectedRfp.id ? { ...r, proposals: r.proposals + 1 } : r));
-    // создаём/обновляем карточку поставщика для текущего исполнителя
-    if (!suppliers.find(s => s.id === currentUser.id)) {
-      setSuppliers(prev => [...prev, { id: currentUser.id, name: uploadCompany, about: "", permit: "", location: currentUser.location || "", contacts: currentUser.phone || "", site: "", completedOrders: 0, verified: false }]);
+  const setRfpStatus = async (id: number, status: Status) => {
+    setRfpList(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+    try {
+      await fetch(RFP_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "setStatus", id, ownerId: currentUser.id, status }) });
+      showToast(status === "Активен" ? "Запрос активен" : "Запрос скрыт");
+    } catch {
+      showToast("⚠️ Не удалось изменить статус запроса");
     }
-    setView("list");
-    showToast("📎 Предложение отправлено заказчику");
-    setUploadCompany(""); setUploadPrice(""); setUploadDelivery(""); setUploadFile("");
   };
 
-  const rateProposal = (proposalId: number, stars: number) => {
+  const deleteRfp = async (id: number) => {
+    setRfpList(prev => prev.filter(r => r.id !== id));
+    try {
+      await fetch(RFP_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "deleteRfp", id, ownerId: currentUser.id }) });
+      showToast("🗑️ Запрос удалён");
+    } catch {
+      showToast("⚠️ Не удалось удалить запрос");
+    }
+  };
+
+  const submitProposal = async () => {
+    if (!selectedRfp || !uploadCompany || !uploadPrice) return;
+    try {
+      let fileData: string | undefined;
+      if (uploadFile) fileData = await fileToDataUrl(uploadFile);
+      await fetch(RFP_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "submitProposal", rfpId: selectedRfp.id, supplierId: currentUser.id,
+          company: uploadCompany, price: uploadPrice, delivery: uploadDelivery || "—", fileData,
+        }),
+      });
+      // создаём/обновляем карточку поставщика для текущего исполнителя, если её ещё нет
+      if (!mySupplier) {
+        await fetch(RFP_API, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "saveSupplier", userId: currentUser.id, name: uploadCompany, about: "", permit: "",
+            location: currentUser.location || "", contacts: currentUser.phone || "", site: "",
+          }),
+        });
+        await loadMySupplier();
+      }
+      await loadRfps();
+      setView("list");
+      showToast("📎 Предложение отправлено заказчику");
+    } catch {
+      showToast("⚠️ Не удалось отправить предложение");
+    }
+    setUploadCompany(""); setUploadPrice(""); setUploadDelivery(""); setUploadFile(null); setUploadFileName("");
+  };
+
+  const rateProposal = async (proposalId: number, stars: number) => {
     setProposals(prev => prev.map(p => p.id === proposalId ? { ...p, manualRating: stars } : p));
-    showToast(`Оценка ${stars}★ выставлена`);
+    try {
+      await fetch(RFP_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "rateProposal", proposalId, stars }) });
+      showToast(`Оценка ${stars}★ выставлена`);
+    } catch {
+      showToast("⚠️ Не удалось сохранить оценку");
+    }
   };
 
-  const supplierOf = (id: number) => suppliers.find(s => s.id === id);
+  const selectWinner = async (supplierId: number, rfpId: number, rfpTitle: string) => {
+    try {
+      await fetch(RFP_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "selectWinner", supplierId, rfpId, rfpTitle, fromName: currentUser.name }),
+      });
+      showToast("✅ Поставщик уведомлён о вашей заинтересованности");
+    } catch {
+      showToast("⚠️ Не удалось отправить уведомление поставщику");
+    }
+  };
+
+  const sendChatMessage = async () => {
+    if (!chatInput.trim() || !chatPeer) return;
+    const text = chatInput.trim();
+    setChatInput("");
+    try {
+      await fetch(RFP_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sendChat", rfpId: chatPeer.rfpId, supplierId: chatPeer.supplierId, fromUserId: currentUser.id, text }),
+      });
+      await loadChat(chatPeer.rfpId, chatPeer.supplierId);
+    } catch {
+      showToast("⚠️ Не удалось отправить сообщение");
+    }
+  };
+
+  const saveSupplierProfile = async () => {
+    if (!supplierForm) return;
+    try {
+      await fetch(RFP_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "saveSupplier", userId: supplierForm.id, name: supplierForm.name, about: supplierForm.about,
+          permit: supplierForm.permit, location: supplierForm.location, contacts: supplierForm.contacts, site: supplierForm.site,
+        }),
+      });
+      showToast("✅ Профиль обновлён");
+      await loadMySupplier();
+      setViewedSupplier(supplierForm);
+      setView("supplier");
+    } catch {
+      showToast("⚠️ Не удалось сохранить профиль");
+    }
+  };
+
+  const supplierOf = (id: number): Supplier | null => {
+    if (id === currentUser.id && mySupplier) return mySupplier;
+    if (viewedSupplier && viewedSupplier.id === id) return viewedSupplier;
+    return null;
+  };
   const supplierRating = (id: number) => {
     const s = supplierOf(id);
-    return s ? trustRating(s.completedOrders) : 0;
+    if (!s) return 0;
+    return s.trustRating ?? trustRatingFallback(s.completedOrders);
   };
 
   // ── REQUEST ROLE ──
@@ -290,9 +495,25 @@ export default function RFPModule({ onBack }: Props) {
         <ModuleHeader title="Оплата роли" onBack={() => setView("list")} icon="Wallet" iconColor="#10b981" />
         <div className="max-w-2xl mx-auto px-4 pt-6 pb-8 space-y-4">
           <div className="glass rounded-2xl p-4 flex items-center gap-3" style={{ border: '1px solid rgba(16,185,129,0.3)' }}><Icon name="CheckCircle" size={20} color="#10b981" /><p className="text-sm text-white/80 flex-1">Заявка одобрена. Выберите тариф и оплатите для активации доступа.</p></div>
+          {refCodeStatus === "valid" && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)' }}>
+              <Icon name="Tag" size={14} color="#10b981" />
+              <p className="text-xs text-green-400">Скидка 10% по коду <span className="font-semibold">{refCode.toUpperCase()}</span> применена</p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
-            <button onClick={() => { payForRole(myExecRequest.id); showToast("✅ Оплата принята, роль активирована!"); setView("cabinet"); }} className="glass-strong rounded-2xl p-5 text-center hover:border-white/30 transition-all"><p className="text-xs text-white/40 uppercase tracking-wider">На год</p><p className="text-2xl font-bold text-white mt-1">{EXECUTOR_PRICE_YEAR.toLocaleString("ru-RU")} ₽</p><p className="text-xs text-green-400 mt-1">выгодно</p></button>
-            <button onClick={() => { payForRole(myExecRequest.id); showToast("✅ Оплата принята, роль активирована!"); setView("cabinet"); }} className="glass-strong rounded-2xl p-5 text-center hover:border-white/30 transition-all"><p className="text-xs text-white/40 uppercase tracking-wider">На месяц</p><p className="text-2xl font-bold text-white mt-1">{EXECUTOR_PRICE_MONTH} ₽</p><p className="text-xs text-white/40 mt-1">помесячно</p></button>
+            <button onClick={() => { payForRole(myExecRequest.id); showToast("✅ Оплата принята, роль активирована!"); setView("cabinet"); }} className="glass-strong rounded-2xl p-5 text-center hover:border-white/30 transition-all">
+              <p className="text-xs text-white/40 uppercase tracking-wider">На год</p>
+              {refCodeStatus === "valid" && <p className="text-xs text-white/30 line-through mt-1">{EXECUTOR_PRICE_YEAR.toLocaleString("ru-RU")} ₽</p>}
+              <p className="text-2xl font-bold text-white mt-1">{execPriceYear.toLocaleString("ru-RU")} ₽</p>
+              <p className="text-xs text-green-400 mt-1">{refCodeStatus === "valid" ? "−10%" : "выгодно"}</p>
+            </button>
+            <button onClick={() => { payForRole(myExecRequest.id); showToast("✅ Оплата принята, роль активирована!"); setView("cabinet"); }} className="glass-strong rounded-2xl p-5 text-center hover:border-white/30 transition-all">
+              <p className="text-xs text-white/40 uppercase tracking-wider">На месяц</p>
+              {refCodeStatus === "valid" && <p className="text-xs text-white/30 line-through mt-1">{EXECUTOR_PRICE_MONTH} ₽</p>}
+              <p className="text-2xl font-bold text-white mt-1">{execPriceMonth} ₽</p>
+              <p className="text-xs text-white/40 mt-1">{refCodeStatus === "valid" ? "−10%" : "помесячно"}</p>
+            </button>
           </div>
           <div className="flex items-start gap-2 p-3 rounded-xl" style={{ background: 'rgba(27,111,255,0.08)', border: '1px solid rgba(27,111,255,0.2)' }}><Icon name="Info" size={14} color="#4d8fff" className="flex-shrink-0 mt-0.5" /><p className="text-xs text-blue-200/70">После оплаты роль активируется. Отсчёт срока подписки начинается со дня оплаты.</p></div>
         </div>
@@ -303,8 +524,16 @@ export default function RFPModule({ onBack }: Props) {
   // ── SUPPLIER PROFILE ──
   if (view === "supplier" && viewedSupplierId !== null) {
     const s = supplierOf(viewedSupplierId);
-    if (!s) { setView("list"); return null; }
-    const rating = trustRating(s.completedOrders);
+    if (!s) {
+      return (
+        <div className="min-h-screen relative z-10 animate-fade-in">
+          {toast && <Toast msg={toast} />}
+          <ModuleHeader title="Профиль поставщика" onBack={() => setView(selectedRfp ? "compare" : "list")} />
+          <div className="max-w-2xl mx-auto px-4 pt-8 pb-8 text-center"><Icon name="Loader2" size={28} color="rgba(255,255,255,0.3)" className="mx-auto mb-3 animate-spin" /><p className="text-white/30 text-sm">Загрузка профиля...</p></div>
+        </div>
+      );
+    }
+    const rating = s.trustRating ?? trustRatingFallback(s.completedOrders);
     return (
       <div className="min-h-screen relative z-10 animate-fade-in">
         {toast && <Toast msg={toast} />}
@@ -350,7 +579,7 @@ export default function RFPModule({ onBack }: Props) {
           <Field label="Местонахождение" value={supplierForm.location} onChange={v => setSupplierForm(f => f && { ...f, location: v })} />
           <Field label="Контактная информация" value={supplierForm.contacts} onChange={v => setSupplierForm(f => f && { ...f, contacts: v })} />
           <Field label="Сайт" value={supplierForm.site} onChange={v => setSupplierForm(f => f && { ...f, site: v })} />
-          <button onClick={() => { setSuppliers(prev => prev.some(x => x.id === supplierForm.id) ? prev.map(x => x.id === supplierForm.id ? supplierForm : x) : [...prev, supplierForm]); showToast("✅ Профиль обновлён"); setView("supplier"); }} className="btn-primary flex items-center justify-center gap-2"><Icon name="Check" size={18} />Сохранить</button>
+          <button onClick={saveSupplierProfile} className="btn-primary flex items-center justify-center gap-2"><Icon name="Check" size={18} />Сохранить</button>
         </div>
       </div>
     );
@@ -376,8 +605,8 @@ export default function RFPModule({ onBack }: Props) {
             <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Файл предложения</label>
             <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,.xlsx" className="hidden" onChange={handleFile} />
             <button onClick={() => fileRef.current?.click()} className="w-full border-2 border-dashed border-white/15 rounded-xl p-5 flex flex-col items-center gap-2 cursor-pointer hover:border-violet-500/50 transition-colors">
-              <Icon name="Upload" size={24} color={uploadFile ? "#8b5cf6" : "rgba(255,255,255,0.3)"} />
-              <span className="text-xs" style={{ color: uploadFile ? '#a78bfa' : 'rgba(255,255,255,0.4)' }}>{uploadFile ? `✓ ${uploadFile}` : "Нажмите для выбора PDF/DOCX/XLSX"}</span>
+              <Icon name="Upload" size={24} color={uploadFileName ? "#8b5cf6" : "rgba(255,255,255,0.3)"} />
+              <span className="text-xs" style={{ color: uploadFileName ? '#a78bfa' : 'rgba(255,255,255,0.4)' }}>{uploadFileName ? `✓ ${uploadFileName}` : "Нажмите для выбора PDF/DOCX/XLSX"}</span>
             </button>
           </div>
           <div className="flex gap-3">
@@ -425,7 +654,7 @@ export default function RFPModule({ onBack }: Props) {
                         <Mini label="Рейтинг" value={`${p.rating.toFixed(1)}★`} highlight={best?.rating.id === p.id} color="#facc15" />
                       </div>
                       <div className="flex items-center gap-2 mb-3">
-                        <button onClick={() => showToast(`📄 Открываю ${p.file}`)} className="text-xs text-blue-400 flex items-center gap-1"><Icon name="Paperclip" size={11} />{p.file}</button>
+                        <button onClick={() => { if (p.file && p.file.startsWith("https://")) window.open(p.file, "_blank", "noopener,noreferrer"); else showToast(`📄 Открываю ${p.file}`); }} className="text-xs text-blue-400 flex items-center gap-1"><Icon name="Paperclip" size={11} />{p.file}</button>
                         <div className="flex items-center gap-0.5 ml-auto">
                           {[1, 2, 3, 4, 5].map(star => (
                             <button key={star} onClick={() => rateProposal(p.id, star)}><Icon name="Star" size={14} color={star <= (p.manualRating ?? Math.round(p.rating)) ? "#facc15" : "rgba(255,255,255,0.2)"} /></button>
@@ -469,9 +698,8 @@ export default function RFPModule({ onBack }: Props) {
                   <Icon name="MessageSquare" size={18} color="#4d8fff" /><span className="text-sm font-medium text-white flex-1">Написать в приложении</span><Icon name="ChevronRight" size={15} color="rgba(255,255,255,0.3)" />
                 </button>
                 <button onClick={() => {
-                  setInterestNotices(prev => [...prev, { id: Date.now(), supplierId: winnerContact.supplierId, rfpId: selectedRfp.id, rfpTitle: selectedRfp.title, fromName: currentUser.name, date: new Date().toLocaleString("ru-RU") }]);
+                  selectWinner(winnerContact.supplierId, selectedRfp.id, selectedRfp.title);
                   setWinnerContact(null);
-                  showToast("✅ Поставщик уведомлён о вашей заинтересованности");
                 }} className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left" style={{ background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)' }}>
                   <Icon name="Send" size={18} color="#8b5cf6" /><span className="text-sm font-medium text-white flex-1">Сообщить о заинтересованности</span><Icon name="ChevronRight" size={15} color="rgba(255,255,255,0.3)" />
                 </button>
@@ -486,12 +714,7 @@ export default function RFPModule({ onBack }: Props) {
 
   // ── ЧАТ заказчик ↔ поставщик ──
   if (view === "chat" && chatPeer) {
-    const thread = chatMessages.filter(m => m.rfpId === chatPeer.rfpId && m.supplierId === chatPeer.supplierId);
-    const sendMsg = () => {
-      if (!chatInput.trim()) return;
-      setChatMessages(prev => [...prev, { id: Date.now(), rfpId: chatPeer.rfpId, supplierId: chatPeer.supplierId, fromUserId: currentUser.id, text: chatInput.trim(), date: new Date().toLocaleString("ru-RU") }]);
-      setChatInput("");
-    };
+    const thread = chatMessages;
     return (
       <div className="min-h-screen relative z-10 animate-fade-in flex flex-col">
         {toast && <Toast msg={toast} />}
@@ -512,8 +735,8 @@ export default function RFPModule({ onBack }: Props) {
         </div>
         <div className="fixed bottom-0 left-0 right-0 glass border-t border-white/10 px-4 py-3">
           <div className="max-w-2xl mx-auto flex items-center gap-2">
-            <input className="input-field flex-1" placeholder="Сообщение..." value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMsg()} />
-            <button onClick={sendMsg} className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg,#1b6fff,#0040cc)' }}><Icon name="Send" size={18} color="white" /></button>
+            <input className="input-field flex-1" placeholder="Сообщение..." value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendChatMessage()} />
+            <button onClick={sendChatMessage} className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg,#1b6fff,#0040cc)' }}><Icon name="Send" size={18} color="white" /></button>
           </div>
         </div>
       </div>
@@ -588,8 +811,6 @@ export default function RFPModule({ onBack }: Props) {
                 {myInterestNotices.map(n => {
                   // Найдём само предложение победителя по этому заказу
                   const myProposal = proposals.find(p => p.rfpId === n.rfpId && p.supplierId === currentUser.id);
-                  // Найдём RFP чтобы показать телефон заказчика победителю
-                  const rfp = rfpList.find(r => r.id === n.rfpId);
                   return (
                     <button key={n.id} onClick={() => setWinnerContactModal(n)} className="w-full text-left rounded-xl p-3 transition-all hover:bg-white/5" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.15)' }}>
                       <div className="flex items-start justify-between gap-2">
@@ -651,7 +872,7 @@ export default function RFPModule({ onBack }: Props) {
           })()}
 
           {isExecutor && (
-            <button onClick={() => { const s = mySupplier || { id: currentUser.id, name: currentUser.name, about: "", permit: "", location: currentUser.location || "", contacts: currentUser.phone || "", site: "", completedOrders: 0, verified: false }; setViewedSupplierId(currentUser.id); if (!mySupplier) setSuppliers(prev => [...prev, s]); setView("supplier"); }} className="w-full flex items-center gap-3 p-4 rounded-2xl text-left" style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)' }}>
+            <button onClick={() => { setViewedSupplierId(currentUser.id); setView("supplier"); }} className="w-full flex items-center gap-3 p-4 rounded-2xl text-left" style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)' }}>
               <Icon name="UserCog" size={18} color="#8b5cf6" /><span className="text-sm font-medium text-white flex-1">Мой профиль поставщика</span><Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.3)" />
             </button>
           )}
@@ -667,7 +888,7 @@ export default function RFPModule({ onBack }: Props) {
                   <h3 className="text-sm font-semibold text-white flex-1">{rfp.title}</h3>
                   <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: sc.bg, color: sc.text }}>{rfp.status}</span>
                 </div>
-                <p className="text-xs text-white/40">до {fmtDeadline(rfp.deadline)}{expired && " (истёк)"} · {proposals.filter(p => p.rfpId === rfp.id).length} предложений</p>
+                <p className="text-xs text-white/40">до {fmtDeadline(rfp.deadline)}{expired && " (истёк)"} · {rfp.proposals} предложений</p>
                 <button onClick={() => { setSelectedRfp(rfp); setView("compare"); }} className="mt-2 text-xs text-blue-400 flex items-center gap-1"><Icon name="BarChart3" size={12} />Сравнить предложения</button>
                 {/* Панель управления запросом */}
                 <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-white/8">
@@ -716,7 +937,7 @@ export default function RFPModule({ onBack }: Props) {
       </div>
       <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
         {/* Любой пользователь может бесплатно разместить запрос */}
-        <button onClick={() => { setEditingRfp(null); setForm({ title: "", desc: "", deadline: "", category: "", location: "", workTerm: "" }); setView("create"); }} className="btn-primary flex items-center justify-center gap-2 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
+        <button onClick={() => { setEditingRfp(null); setForm({ title: "", desc: "", deadline: "", category: "", location: "", workTerm: "", contactPhone: "" }); setView("create"); }} className="btn-primary flex items-center justify-center gap-2 animate-fade-up opacity-0" style={{ animationFillMode: 'forwards' }}>
           <Icon name="Plus" size={18} />Создать запрос предложений
         </button>
         {/* CTA для роли исполнителя */}
@@ -735,36 +956,40 @@ export default function RFPModule({ onBack }: Props) {
             </button>
           )
         )}
-        <div className="space-y-3">
-          {visibleRfps.map((rfp, i) => {
-            const sc = STATUS_COLORS[rfp.status];
-            return (
-              <div key={rfp.id} className={`card-module animate-fade-up opacity-0`} style={{ animationDelay: `${0.1 + i * 0.07}s`, animationFillMode: 'forwards' }}>
-                <div className="flex items-start justify-between mb-2">
-                  <span className="tag text-xs">{rfp.category}</span>
-                  <span className="text-xs px-2 py-1 rounded-lg font-medium" style={{ background: sc.bg, color: sc.text, border: `1px solid ${sc.border}` }}>{rfp.status}</span>
+        {loading ? (
+          <div className="text-center py-14"><Icon name="Loader2" size={28} color="rgba(255,255,255,0.3)" className="mx-auto mb-3 animate-spin" /><p className="text-white/30 text-sm">Загружаем запросы...</p></div>
+        ) : (
+          <div className="space-y-3">
+            {visibleRfps.map((rfp, i) => {
+              const sc = STATUS_COLORS[rfp.status];
+              return (
+                <div key={rfp.id} className={`card-module animate-fade-up opacity-0`} style={{ animationDelay: `${0.1 + i * 0.07}s`, animationFillMode: 'forwards' }}>
+                  <div className="flex items-start justify-between mb-2">
+                    <span className="tag text-xs">{rfp.category}</span>
+                    <span className="text-xs px-2 py-1 rounded-lg font-medium" style={{ background: sc.bg, color: sc.text, border: `1px solid ${sc.border}` }}>{rfp.status}</span>
+                  </div>
+                  <h3 className="text-sm font-semibold text-white mb-1">{rfp.title}</h3>
+                  <p className="text-xs text-white/50 mb-3 line-clamp-2">{rfp.desc}</p>
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-white/40 mb-3">
+                    <span className="flex items-center gap-1"><Icon name="MapPin" size={11} />{rfp.location || "—"}</span>
+                    <span className="flex items-center gap-1"><Icon name="Timer" size={11} />{rfp.workTerm || "—"}</span>
+                    <span className="flex items-center gap-1"><Icon name="Calendar" size={11} />до {fmtDeadline(rfp.deadline)}</span>
+                    <span className="flex items-center gap-1"><Icon name="FileText" size={11} />{rfp.proposals}</span>
+                  </div>
+                  <div className="flex gap-2 pt-3 border-t border-white/8">
+                    <button onClick={() => { setSelectedRfp(rfp); if (isExecutor) { setUploadCompany(mySupplier?.name || currentUser.name || ""); setView("upload"); } else { setRequestPhone(currentUser.phone || ""); setRequestAgreed(false); setView("request"); } }} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-white/60 hover:text-white transition-colors hover:bg-white/10 active:scale-95">
+                      <Icon name="Upload" size={13} />Загрузить предложение
+                    </button>
+                    <button onClick={() => { setSelectedRfp(rfp); setView("compare"); }} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors active:scale-95" style={{ background: 'rgba(27,111,255,0.1)', border: '1px solid rgba(27,111,255,0.2)' }}>
+                      <Icon name="BarChart3" size={13} />Сравнить
+                    </button>
+                  </div>
                 </div>
-                <h3 className="text-sm font-semibold text-white mb-1">{rfp.title}</h3>
-                <p className="text-xs text-white/50 mb-3 line-clamp-2">{rfp.desc}</p>
-                <div className="flex flex-wrap items-center gap-3 text-xs text-white/40 mb-3">
-                  <span className="flex items-center gap-1"><Icon name="MapPin" size={11} />{rfp.location || "—"}</span>
-                  <span className="flex items-center gap-1"><Icon name="Timer" size={11} />{rfp.workTerm || "—"}</span>
-                  <span className="flex items-center gap-1"><Icon name="Calendar" size={11} />до {fmtDeadline(rfp.deadline)}</span>
-                  <span className="flex items-center gap-1"><Icon name="FileText" size={11} />{proposals.filter(p => p.rfpId === rfp.id).length}</span>
-                </div>
-                <div className="flex gap-2 pt-3 border-t border-white/8">
-                  <button onClick={() => { setSelectedRfp(rfp); if (isExecutor) { setUploadCompany(mySupplier?.name || currentUser.name || ""); setView("upload"); } else { setRequestPhone(currentUser.phone || ""); setRequestAgreed(false); setView("request"); } }} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-white/60 hover:text-white transition-colors hover:bg-white/10 active:scale-95">
-                    <Icon name="Upload" size={13} />Загрузить предложение
-                  </button>
-                  <button onClick={() => { setSelectedRfp(rfp); setView("compare"); }} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors active:scale-95" style={{ background: 'rgba(27,111,255,0.1)', border: '1px solid rgba(27,111,255,0.2)' }}>
-                    <Icon name="BarChart3" size={13} />Сравнить
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-          {visibleRfps.length === 0 && <div className="text-center py-14"><Icon name="FileSearch" size={32} color="rgba(255,255,255,0.2)" className="mx-auto mb-3" /><p className="text-white/30 text-sm">Нет активных запросов</p></div>}
-        </div>
+              );
+            })}
+            {visibleRfps.length === 0 && <div className="text-center py-14"><Icon name="FileSearch" size={32} color="rgba(255,255,255,0.2)" className="mx-auto mb-3" /><p className="text-white/30 text-sm">Нет активных запросов</p></div>}
+          </div>
+        )}
       </div>
     </div>
   );

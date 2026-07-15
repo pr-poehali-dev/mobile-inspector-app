@@ -1,0 +1,6 @@
+{
+  "tests": [
+    {"name": "Лента новостей", "method": "GET", "path": "/?action=feed", "expectedStatus": 200, "expectedBody": {"news": []}, "bodyMatcher": "partial"},
+    {"name": "OPTIONS preflight", "method": "OPTIONS", "path": "/", "expectedStatus": 200}
+  ]
+}

@@ -1,12 +1,14 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
-import { useSharedState } from "@/hooks/useSharedState";
+import func2url from "../../../backend/func2url.json";
 import {
-  AnswerValue, ChecklistData, Area, Sphere, ViewMode, QuestionState, HistoryRecord, INITIAL_SPHERES,
+  AnswerValue, ChecklistData, Area, Sphere, ViewMode, QuestionState, HistoryRecord,
 } from "./checklist/data";
 import ChecklistAdminView from "./checklist/ChecklistAdminView";
 import ChecklistSurveyView from "./checklist/ChecklistSurveyView";
 import ChecklistBrowseViews from "./checklist/ChecklistBrowseViews";
+
+const CHECKLISTS_API = (func2url as Record<string, string>)["checklists"];
 
 interface Props { onBack: () => void; }
 
@@ -15,7 +17,7 @@ export default function ChecklistModule({ onBack }: Props) {
   const currentUserEmail = currentUser?.email || "";
   const [historyEmailToast, setHistoryEmailToast] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("spheres");
-  const [spheres, setSpheres] = useSharedState<Sphere[]>("checklist_spheres", INITIAL_SPHERES);
+  const [spheres, setSpheres] = useState<Sphere[]>([]);
   const [selectedSphere, setSelectedSphere] = useState<Sphere | null>(null);
   const [selectedArea, setSelectedArea] = useState<Area | null>(null);
   const [selectedChecklist, setSelectedChecklist] = useState<ChecklistData | null>(null);
@@ -30,8 +32,7 @@ export default function ChecklistModule({ onBack }: Props) {
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [objectName, setObjectName] = useState("");
   const [pendingChecklist, setPendingChecklist] = useState<ChecklistData | null>(null);
-  // История проверок сохраняется в профиле пользователя (по его id)
-  const [history, setHistory] = useSharedState<HistoryRecord[]>(`checklist_history_${currentUser?.id ?? "guest"}`, []);
+  const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [historyRecord, setHistoryRecord] = useState<HistoryRecord | null>(null);
   const photoQIdRef = useRef<number | null>(null);
   const photoFileRef = useRef<HTMLInputElement>(null);
@@ -43,6 +44,26 @@ export default function ChecklistModule({ onBack }: Props) {
   const [newSphereTitle, setNewSphereTitle] = useState("");
   const [newAreaTitle, setNewAreaTitle] = useState("");
   const [newChecklistTitle, setNewChecklistTitle] = useState("");
+
+  const loadHierarchy = useCallback(async () => {
+    try {
+      const res = await fetch(`${CHECKLISTS_API}?action=hierarchy`);
+      const data = await res.json();
+      setSpheres(Array.isArray(data.spheres) ? data.spheres : []);
+    } catch { /* ignore, список останется пустым до повторной попытки */ }
+  }, []);
+
+  const loadHistory = useCallback(async () => {
+    if (!currentUser?.id) return;
+    try {
+      const res = await fetch(`${CHECKLISTS_API}?action=history&userId=${currentUser.id}`);
+      const data = await res.json();
+      setHistory(Array.isArray(data.history) ? data.history : []);
+    } catch { /* ignore */ }
+  }, [currentUser?.id]);
+
+  useEffect(() => { loadHierarchy(); }, [loadHierarchy]);
+  useEffect(() => { loadHistory(); }, [loadHistory]);
 
   const getQState = (qId: number): QuestionState =>
     questionStates[qId] || { answer: null, note: "", photos: [] };
@@ -89,22 +110,23 @@ export default function ChecklistModule({ onBack }: Props) {
     e.target.value = "";
   };
 
-  const saveToHistory = () => {
+  const saveToHistory = async () => {
     if (!selectedChecklist) return;
-    const rec: HistoryRecord = {
-      id: Date.now(),
-      objectName: objectName || "Без названия",
-      checklistTitle: selectedChecklist.title,
-      sphereTitle: selectedSphere?.title || "",
-      areaTitle: selectedArea?.title || "",
-      date: new Date().toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }),
-      yes: selectedChecklist.questions.filter(q => getQState(q.id).answer === "yes").length,
-      no: selectedChecklist.questions.filter(q => getQState(q.id).answer === "no").length,
-      na: selectedChecklist.questions.filter(q => getQState(q.id).answer === "na").length,
-      questions: selectedChecklist.questions.map(q => ({ text: q.text, answer: getQState(q.id).answer, note: getQState(q.id).note, photos: getQState(q.id).photos })),
-    };
-    setHistory(prev => [rec, ...prev]);
-    // После сохранения — переходим на экран истории проверок пользователя
+    const questions = selectedChecklist.questions.map(q => ({ text: q.text, answer: getQState(q.id).answer, note: getQState(q.id).note, photos: getQState(q.id).photos }));
+    const yes = questions.filter(q => q.answer === "yes").length;
+    const no = questions.filter(q => q.answer === "no").length;
+    const na = questions.filter(q => q.answer === "na").length;
+    try {
+      await fetch(CHECKLISTS_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "saveHistory", userId: currentUser.id, objectName: objectName || "Без названия",
+          checklistTitle: selectedChecklist.title, sphereTitle: selectedSphere?.title || "",
+          areaTitle: selectedArea?.title || "", yes, no, na, questions,
+        }),
+      });
+    } catch { /* локальная история покажет актуальные данные после следующей загрузки */ }
+    await loadHistory();
     setView("history");
   };
 
@@ -161,7 +183,6 @@ export default function ChecklistModule({ onBack }: Props) {
     const yesCount = selectedChecklist.questions.filter(q => getQState(q.id).answer === "yes").length;
     const noCount = selectedChecklist.questions.filter(q => getQState(q.id).answer === "no").length;
     const naCount = selectedChecklist.questions.filter(q => getQState(q.id).answer === "na").length;
-    const totalQ = selectedChecklist.questions.length;
 
     const rows = selectedChecklist.questions.map((q, i) => {
       const st = getQState(q.id);
@@ -218,7 +239,7 @@ export default function ChecklistModule({ onBack }: Props) {
     <div class="meta-item"><div class="meta-label">Наименование проверяемого объекта</div><div class="meta-value">${objectName || "—"}</div></div>
     <div class="meta-item"><div class="meta-label">Дата проверки</div><div class="meta-value">${dateStr}</div></div>
     <div class="meta-item"><div class="meta-label">Время</div><div class="meta-value">${timeStr}</div></div>
-    <div class="meta-item"><div class="meta-label">Всего вопросов</div><div class="meta-value">${totalQ}</div></div>
+    <div class="meta-item"><div class="meta-label">Всего вопросов</div><div class="meta-value">${selectedChecklist.questions.length}</div></div>
   </div>
   <div class="stats">
     <div class="stat stat-yes"><div class="stat-num">${yesCount}</div><div class="stat-label">✅ Да / Выполнено</div></div>
@@ -243,7 +264,7 @@ export default function ChecklistModule({ onBack }: Props) {
     win.document.close();
     win.focus();
     setTimeout(() => win.print(), 400);
-  }, [selectedChecklist, selectedSphere, selectedArea, questionStates, objectName]);
+  }, [selectedChecklist, selectedSphere, selectedArea, objectName, getQState]);
 
   const handleSendEmail = () => {
     if (!emailInput.trim()) return;
@@ -261,29 +282,33 @@ export default function ChecklistModule({ onBack }: Props) {
 
   const currentQ = selectedChecklist?.questions[currentQIndex];
 
-  // Admin helpers
-  const addSphere = () => {
+  // Admin helpers — реальные вызовы к backend, затем перезагрузка иерархии
+  const addSphere = async () => {
     if (!newSphereTitle.trim()) return;
-    setSpheres(prev => [...prev, { id: Date.now(), title: newSphereTitle, icon: "MoreHorizontal", color: "#64748b", areas: [] }]);
+    try {
+      await fetch(CHECKLISTS_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "addSphere", title: newSphereTitle }) });
+      await loadHierarchy();
+    } catch { /* ignore */ }
     setNewSphereTitle("");
     setAdminView("main");
   };
 
-  const addArea = () => {
+  const addArea = async () => {
     if (!newAreaTitle.trim() || !adminSphereId) return;
-    setSpheres(prev => prev.map(s => s.id !== adminSphereId ? s : { ...s, areas: [...s.areas, { id: Date.now(), title: newAreaTitle, checklists: [] }] }));
+    try {
+      await fetch(CHECKLISTS_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "addArea", sphereId: adminSphereId, title: newAreaTitle }) });
+      await loadHierarchy();
+    } catch { /* ignore */ }
     setNewAreaTitle("");
     setAdminView("main");
   };
 
-  const addChecklist = () => {
+  const addChecklist = async () => {
     if (!newChecklistTitle.trim() || !adminSphereId || !adminAreaId) return;
-    setSpheres(prev => prev.map(s => s.id !== adminSphereId ? s : {
-      ...s,
-      areas: s.areas.map(a => a.id !== adminAreaId ? a : {
-        ...a, checklists: [...a.checklists, { id: Date.now(), title: newChecklistTitle, questions: [] }]
-      })
-    }));
+    try {
+      await fetch(CHECKLISTS_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "addChecklist", areaId: adminAreaId, title: newChecklistTitle }) });
+      await loadHierarchy();
+    } catch { /* ignore */ }
     setNewChecklistTitle("");
     setAdminView("main");
   };

@@ -1,0 +1,6 @@
+{
+  "tests": [
+    {"name": "Список RFP", "method": "GET", "path": "/?action=list", "expectedStatus": 200, "expectedBody": {"rfps": []}, "bodyMatcher": "partial"},
+    {"name": "OPTIONS preflight", "method": "OPTIONS", "path": "/", "expectedStatus": 200}
+  ]
+}

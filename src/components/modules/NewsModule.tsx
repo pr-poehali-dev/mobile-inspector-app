@@ -1,9 +1,11 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import AdminBlockButton from "@/components/AdminBlockButton";
 import { useApp } from "@/context/AppContext";
-import { useSharedState } from "@/hooks/useSharedState";
+import func2url from "../../../backend/func2url.json";
+
+const NEWS_API = (func2url as Record<string, string>)["news"];
 
 interface Props { onBack: () => void; }
 
@@ -16,17 +18,26 @@ interface NewsItem {
   authorId: number;
   authorName: string;
   image: string;
-  imageData?: string; // загруженное изображение новости (data-url)
+  imageData?: string;
   important: boolean;
   status: "published" | "draft";
 }
 
 interface BlogProfile {
   banner: string;
-  bannerImage?: string; // загруженное изображение баннера (data-url)
-  name?: string; // наименование блога
+  bannerImage?: string;
+  name?: string;
   description: string;
   location: string;
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 const CAT_COLORS: Record<string, string> = {
@@ -38,14 +49,6 @@ const CAT_COLORS: Record<string, string> = {
   "Иное": "#64748b",
 };
 
-const IMG_GRADIENTS = [
-  "linear-gradient(135deg, #1b3a7a, #0f2050)",
-  "linear-gradient(135deg, #7a1b1b, #501010)",
-  "linear-gradient(135deg, #1a5c40, #0d3a28)",
-  "linear-gradient(135deg, #7a5c10, #503c08)",
-  "linear-gradient(135deg, #4a1b7a, #2d1050)",
-];
-
 const BANNERS = [
   "linear-gradient(135deg, #1b6fff, #7c3aed)",
   "linear-gradient(135deg, #ef4444, #f59e0b)",
@@ -53,15 +56,14 @@ const BANNERS = [
   "linear-gradient(135deg, #8b5cf6, #ec4899)",
 ];
 
-
-
 type ViewMode = "list" | "detail" | "add" | "blog" | "blog_settings" | "request";
 
 export default function NewsModule({ onBack }: Props) {
   const { currentUser, users, hasRole, isAdmin, categories, addRoleRequest, bumpStat, isContentBlocked } = useApp();
   const NEWS_CATEGORIES = ["Все", ...(categories.news || [])];
 
-  const [news, setNews] = useSharedState<NewsItem[]>("news_all", []);
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState("Все");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<ViewMode>("list");
@@ -69,34 +71,65 @@ export default function NewsModule({ onBack }: Props) {
   const [viewedAuthorId, setViewedAuthorId] = useState<number | null>(null);
   const [editing, setEditing] = useState<NewsItem | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [blogProfiles, setBlogProfiles] = useSharedState<Record<number, BlogProfile>>("news_blog_profiles", {});
+  const [blogProfiles, setBlogProfiles] = useState<Record<number, BlogProfile>>({});
   const [addForm, setAddForm] = useState({ title: "", text: "", category: (categories.news || [])[0] || "Иное", important: false, imageData: "" });
   const [settingsForm, setSettingsForm] = useState<BlogProfile>({ banner: BANNERS[0], bannerImage: "", name: "", description: "", location: currentUser.location });
   const newsImageRef = useRef<HTMLInputElement>(null);
   const bannerImageRef = useRef<HTMLInputElement>(null);
   const [requestPhone, setRequestPhone] = useState(currentUser.phone || "");
   const [requestAgreed, setRequestAgreed] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
+  const isEditor = isAdmin || hasRole("editor");
+  const getCatColor = (c: string) => CAT_COLORS[c] || "#64748b";
+
+  const loadFeed = useCallback(async () => {
+    try {
+      const res = await fetch(`${NEWS_API}?action=feed`);
+      const data = await res.json();
+      setNews(Array.isArray(data.news) ? data.news : []);
+    } catch {
+      showToast("⚠️ Не удалось загрузить новости. Проверьте соединение.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadMyNews = useCallback(async () => {
+    try {
+      const res = await fetch(`${NEWS_API}?action=my&userId=${currentUser.id}`);
+      const data = await res.json();
+      const mine: NewsItem[] = Array.isArray(data.news) ? data.news : [];
+      setNews(prev => {
+        const others = prev.filter(n => n.authorId !== currentUser.id);
+        return [...mine, ...others];
+      });
+    } catch { /* ignore */ }
+  }, [currentUser.id]);
+
+  const loadBlogProfile = useCallback(async (userId: number) => {
+    try {
+      const res = await fetch(`${NEWS_API}?action=blogProfile&userId=${userId}`);
+      const data = await res.json();
+      if (data.profile) setBlogProfiles(prev => ({ ...prev, [userId]: data.profile }));
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { loadFeed().then(() => loadMyNews()); }, [loadFeed, loadMyNews]);
 
   const handleNewsImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => setAddForm(prev => ({ ...prev, imageData: reader.result as string }));
-    reader.readAsDataURL(f);
+    fileToDataUrl(f).then(dataUrl => setAddForm(prev => ({ ...prev, imageData: dataUrl })));
     e.target.value = "";
   };
   const handleBannerImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => setSettingsForm(prev => ({ ...prev, bannerImage: reader.result as string }));
-    reader.readAsDataURL(f);
+    fileToDataUrl(f).then(dataUrl => setSettingsForm(prev => ({ ...prev, bannerImage: dataUrl })));
     e.target.value = "";
   };
-
-  const isEditor = isAdmin || hasRole("editor");
-  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
-  const getCatColor = (c: string) => CAT_COLORS[c] || "#64748b";
 
   const myNews = useMemo(() => news.filter(n => n.authorId === currentUser.id), [news, currentUser.id]);
 
@@ -109,26 +142,72 @@ export default function NewsModule({ onBack }: Props) {
       list = list.filter(n => n.title.toLowerCase().includes(q) || n.text.toLowerCase().includes(q) || n.authorName.toLowerCase().includes(q));
     }
     return list;
-  }, [news, category, search]);
+  }, [news, category, search, isAdmin, isContentBlocked]);
 
-  const saveNews = () => {
-    if (!addForm.title.trim() || !addForm.text.trim()) return;
-    if (editing) {
-      setNews(prev => prev.map(n => n.id === editing.id ? { ...n, title: addForm.title, text: addForm.text, category: addForm.category, important: addForm.important, imageData: addForm.imageData || n.imageData } : n));
-      showToast("✅ Новость обновлена");
-    } else {
-      const item: NewsItem = { id: Date.now(), title: addForm.title, text: addForm.text, category: addForm.category, date: new Date().toLocaleDateString("ru-RU"), authorId: currentUser.id, authorName: currentUser.name, image: IMG_GRADIENTS[Math.floor(Math.random() * IMG_GRADIENTS.length)], imageData: addForm.imageData || undefined, important: addForm.important, status: isEditor ? "published" : "draft" };
-      setNews(prev => [item, ...prev]);
-      bumpStat("news", 1);
-      showToast(isEditor ? "✅ Новость опубликована!" : "📝 Сохранено в «Мои новости»");
+  const saveNews = async () => {
+    if (!addForm.title.trim() || !addForm.text.trim() || saving) return;
+    setSaving(true);
+    try {
+      if (editing) {
+        const res = await fetch(NEWS_API, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "update", id: editing.id, userId: currentUser.id, title: addForm.title, text: addForm.text, category: addForm.category, important: addForm.important, imageData: addForm.imageData || undefined }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error);
+        showToast("✅ Новость обновлена");
+      } else {
+        const res = await fetch(NEWS_API, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "publish", authorId: currentUser.id, authorName: currentUser.name, title: addForm.title, text: addForm.text, category: addForm.category, important: addForm.important, imageData: addForm.imageData || undefined, isEditor }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error);
+        bumpStat("news", 1);
+        showToast(isEditor ? "✅ Новость опубликована!" : "📝 Сохранено в «Мои новости»");
+      }
+      await loadMyNews();
+      await loadFeed();
+      setAddForm({ title: "", text: "", category: (categories.news || [])[0] || "Иное", important: false, imageData: "" });
+      setEditing(null);
+      setView(isEditor ? "blog" : "list");
+    } catch {
+      showToast("⚠️ Не удалось сохранить новость");
+    } finally {
+      setSaving(false);
     }
-    setAddForm({ title: "", text: "", category: (categories.news || [])[0] || "Иное", important: false, imageData: "" });
-    setEditing(null);
-    setView(isEditor ? "blog" : "list");
   };
 
-  const deleteNews = (id: number) => { setNews(prev => prev.filter(n => n.id !== id)); bumpStat("news", -1); showToast("🗑️ Удалено"); };
+  const deleteNews = async (id: number) => {
+    try {
+      const res = await fetch(NEWS_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "delete", id, userId: currentUser.id }) });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error);
+      setNews(prev => prev.filter(n => n.id !== id));
+      bumpStat("news", -1);
+      showToast("🗑️ Удалено");
+    } catch {
+      showToast("⚠️ Не удалось удалить");
+    }
+  };
+
   const startEdit = (n: NewsItem) => { setEditing(n); setAddForm({ title: n.title, text: n.text, category: n.category, important: n.important, imageData: n.imageData || "" }); setView("add"); };
+
+  const saveBlogProfile = async () => {
+    try {
+      const res = await fetch(NEWS_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "saveBlogProfile", userId: currentUser.id, banner: settingsForm.banner, bannerImage: settingsForm.bannerImage || undefined, name: settingsForm.name, description: settingsForm.description, location: settingsForm.location }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error);
+      setBlogProfiles(prev => ({ ...prev, [currentUser.id]: settingsForm }));
+      showToast("✅ Блог обновлён");
+      setView("blog");
+    } catch {
+      showToast("⚠️ Не удалось сохранить настройки блога");
+    }
+  };
 
   // ── REQUEST EDITOR ──
   if (view === "request") {
@@ -149,32 +228,28 @@ export default function NewsModule({ onBack }: Props) {
             ))}
           </div>
 
-          {/* Стоимость — бесплатно */}
           <div className="glass rounded-2xl p-4 flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(16,185,129,0.15)' }}><Icon name="Gift" size={20} color="#10b981" /></div>
             <div className="flex-1"><p className="text-sm font-semibold text-white">Стоимость роли</p><p className="text-xs text-white/40">Активируется сразу после одобрения</p></div>
             <span className="text-lg font-bold text-green-400">Бесплатно</span>
           </div>
 
-          {/* Телефон */}
           <div>
             <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Номер телефона для обратной связи *</label>
             <input className="input-field" type="tel" placeholder="+7 (___) ___-__-__" value={requestPhone} onChange={e => setRequestPhone(e.target.value)} />
           </div>
 
-          {/* Юридическая инструкция */}
           <div className="glass rounded-2xl p-4 flex items-start gap-3" style={{ border: '1px solid rgba(245,158,11,0.25)', background: 'rgba(245,158,11,0.08)' }}>
             <Icon name="Info" size={16} color="#f59e0b" className="flex-shrink-0 mt-0.5" />
             <p className="text-xs text-yellow-200/80 leading-relaxed">Администрация рассматривает заявку и принимает решение об одобрении или отказе по собственному усмотрению. Решение администрации окончательно и не требует пояснений.</p>
           </div>
 
-          {/* Чекбокс согласия */}
           <button type="button" onClick={() => setRequestAgreed(a => !a)} className="w-full flex items-center gap-3 p-4 rounded-xl text-left transition-all" style={{ background: requestAgreed ? 'rgba(245,158,11,0.12)' : 'rgba(255,255,255,0.04)', border: requestAgreed ? '1px solid rgba(245,158,11,0.35)' : '1px solid rgba(255,255,255,0.1)' }}>
             <div className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: requestAgreed ? '#f59e0b' : 'transparent', border: requestAgreed ? 'none' : '1px solid rgba(255,255,255,0.25)' }}>{requestAgreed && <Icon name="Check" size={12} color="white" />}</div>
             <span className="text-sm text-white/80">Я ознакомлен и согласен с правилами подачи заявки</span>
           </button>
 
-          <button className="btn-primary flex items-center justify-center gap-2 disabled:opacity-40" disabled={!canSubmit} onClick={() => { addRoleRequest("editor", requestPhone, false); showToast("📩 Заявка на роль редактора отправлена"); setRequestAgreed(false); setView("list"); }} style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}><Icon name="Send" size={18} />Отправить заявку</button>
+          <button className="btn-primary flex items-center justify-center gap-2 disabled:opacity-40" disabled={!canSubmit} onClick={() => { addRoleRequest("editor", requestPhone, false); showToast("📩 Заявка отправлена администратору"); setRequestAgreed(false); setView("list"); }} style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}><Icon name="Send" size={18} />Отправить заявку</button>
         </div>
       </div>
     );
@@ -206,7 +281,7 @@ export default function NewsModule({ onBack }: Props) {
           <textarea className="input-field resize-none" rows={3} placeholder="Расскажите о вашем блоге..." value={settingsForm.description} onChange={e => setSettingsForm(f => ({ ...f, description: e.target.value }))} /></div>
         <div><label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Местоположение</label>
           <input className="input-field" placeholder="Город" value={settingsForm.location} onChange={e => setSettingsForm(f => ({ ...f, location: e.target.value }))} /></div>
-        <button onClick={() => { setBlogProfiles(prev => ({ ...prev, [currentUser.id]: settingsForm })); showToast("✅ Блог обновлён"); setView("blog"); }} className="btn-primary flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}><Icon name="Check" size={18} />Сохранить</button>
+        <button onClick={saveBlogProfile} className="btn-primary flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}><Icon name="Check" size={18} />Сохранить</button>
       </div>
     </div>
   );
@@ -220,6 +295,8 @@ export default function NewsModule({ onBack }: Props) {
     const ownerAvatar = isMyBlog ? currentUser.avatar : (owner?.avatar || "?");
     const profile = blogProfiles[blogOwnerId] || { banner: BANNERS[0], description: "Блог редактора", location: owner?.location || "—" };
     const blogNews = news.filter(n => n.authorId === blogOwnerId);
+
+    if (!blogProfiles[blogOwnerId]) loadBlogProfile(blogOwnerId);
 
     return (
       <div className="min-h-screen relative z-10 animate-fade-in">
@@ -281,19 +358,23 @@ export default function NewsModule({ onBack }: Props) {
           <textarea className="input-field resize-none" rows={6} placeholder="Текст статьи..." value={addForm.text} onChange={e => setAddForm(f => ({ ...f, text: e.target.value }))} /></div>
         <div>
           <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Категория</label>
-          <div className="flex flex-wrap gap-2">{(categories.news || []).map(cat => (
-            <button key={cat} onClick={() => setAddForm(f => ({ ...f, category: cat }))} className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all" style={{ background: addForm.category === cat ? `${getCatColor(cat)}25` : 'rgba(255,255,255,0.06)', border: `1px solid ${addForm.category === cat ? `${getCatColor(cat)}60` : 'rgba(255,255,255,0.1)'}`, color: addForm.category === cat ? getCatColor(cat) : 'rgba(255,255,255,0.5)' }}>{cat}</button>
-          ))}</div>
+          <div className="flex flex-wrap gap-2">
+            {(categories.news || []).map(cat => (
+              <button key={cat} onClick={() => setAddForm(f => ({ ...f, category: cat }))} className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all" style={{ background: addForm.category === cat ? `${getCatColor(cat)}25` : 'rgba(255,255,255,0.06)', border: `1px solid ${addForm.category === cat ? `${getCatColor(cat)}60` : 'rgba(255,255,255,0.1)'}`, color: addForm.category === cat ? getCatColor(cat) : 'rgba(255,255,255,0.5)' }}>{cat}</button>
+            ))}
+          </div>
         </div>
-        <button onClick={() => setAddForm(f => ({ ...f, important: !f.important }))} className="w-full flex items-center gap-3 p-4 rounded-xl transition-all" style={{ background: addForm.important ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.04)', border: addForm.important ? '1px solid rgba(239,68,68,0.35)' : '1px solid rgba(255,255,255,0.1)' }}>
-          <div className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: addForm.important ? '#ef4444' : 'transparent', border: addForm.important ? 'none' : '1px solid rgba(255,255,255,0.25)' }}>{addForm.important && <Icon name="Check" size={12} color="white" />}</div>
-          <div><p className="text-sm font-medium text-white text-left">Важная новость</p><p className="text-xs text-white/40 text-left">Будет выделена меткой</p></div>
-        </button>
+        {isEditor && (
+          <button type="button" onClick={() => setAddForm(f => ({ ...f, important: !f.important }))} className="w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all" style={{ background: addForm.important ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.04)', border: addForm.important ? '1px solid rgba(239,68,68,0.35)' : '1px solid rgba(255,255,255,0.1)' }}>
+            <div className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: addForm.important ? '#ef4444' : 'transparent', border: addForm.important ? 'none' : '1px solid rgba(255,255,255,0.25)' }}>{addForm.important && <Icon name="Check" size={12} color="white" />}</div>
+            <span className="text-sm text-white/80">Отметить как важную новость</span>
+          </button>
+        )}
         <div>
           <label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Изображение новости</label>
           <input ref={newsImageRef} type="file" accept="image/*" className="hidden" onChange={handleNewsImage} />
           {addForm.imageData ? (
-            <div className="rounded-xl overflow-hidden relative" style={{ aspectRatio: '16/7' }}>
+            <div className="rounded-xl overflow-hidden relative" style={{ aspectRatio: '16/9' }}>
               <img src={addForm.imageData} alt="" className="w-full h-full object-cover" />
               <button onClick={() => setAddForm(f => ({ ...f, imageData: "" }))} className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}><Icon name="X" size={15} color="white" /></button>
             </div>
@@ -302,7 +383,7 @@ export default function NewsModule({ onBack }: Props) {
           )}
         </div>
         {!isEditor && <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)' }}><Icon name="Info" size={15} color="#f59e0b" /><p className="text-xs text-yellow-300/80">Сохранится в черновики. Для публикации нужна роль редактора.</p></div>}
-        <button onClick={saveNews} className="btn-primary flex items-center justify-center gap-2" disabled={!addForm.title.trim() || !addForm.text.trim()} style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}><Icon name={editing ? "Check" : isEditor ? "Send" : "Save"} size={18} />{editing ? "Сохранить" : isEditor ? "Опубликовать" : "В черновики"}</button>
+        <button onClick={saveNews} className="btn-primary flex items-center justify-center gap-2" disabled={!addForm.title.trim() || !addForm.text.trim() || saving} style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>{saving ? <><Icon name="Loader2" size={18} className="animate-spin" />Сохраняем...</> : <><Icon name={editing ? "Check" : isEditor ? "Send" : "Save"} size={18} />{editing ? "Сохранить" : isEditor ? "Опубликовать" : "В черновики"}</>}</button>
       </div>
     </div>
   );
@@ -342,7 +423,6 @@ export default function NewsModule({ onBack }: Props) {
             <button onClick={() => { if (isEditor) { setViewedAuthorId(null); setView("blog"); } else { setRequestPhone(currentUser.phone || ""); setRequestAgreed(false); setView("request"); } }} className="p-2 rounded-xl hover:bg-white/10 transition-colors">
               <Icon name="BookOpen" size={18} color={isEditor ? "#f59e0b" : "rgba(255,255,255,0.6)"} />
             </button>
-            {/* Иконку «+» (добавить новость) видят только редакторы */}
             {isEditor && <button onClick={() => { setEditing(null); setView("add"); }} className="p-2 rounded-xl hover:bg-white/10 transition-colors"><Icon name="Plus" size={20} color="white" /></button>}
           </div>
           <div className="relative">
@@ -366,7 +446,9 @@ export default function NewsModule({ onBack }: Props) {
             <span className="text-xs text-yellow-300 flex-1">У вас {myNews.filter(n => n.status === "draft").length} черновиков в «Мои новости»</span>
           </button>
         )}
-        {filtered.length > 0
+        {loading ? (
+          <div className="text-center py-14"><Icon name="Loader2" size={28} color="rgba(255,255,255,0.3)" className="mx-auto mb-3 animate-spin" /><p className="text-white/30 text-sm">Загружаем новости...</p></div>
+        ) : filtered.length > 0
           ? filtered.map((item, i) => (
             <div key={item.id} className="relative w-full glass rounded-2xl overflow-hidden animate-fade-up opacity-0 hover:border-white/20 transition-all" style={{ animationDelay: `${i * 0.05}s`, animationFillMode: 'forwards' }}>
               <button onClick={() => { setSelected(item); setView("detail"); }} className="w-full text-left">

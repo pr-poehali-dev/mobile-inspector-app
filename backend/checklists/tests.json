@@ -1,0 +1,6 @@
+{
+  "tests": [
+    {"name": "Иерархия чек-листов", "method": "GET", "path": "/?action=hierarchy", "expectedStatus": 200, "expectedBody": {"spheres": []}, "bodyMatcher": "partial"},
+    {"name": "OPTIONS preflight", "method": "OPTIONS", "path": "/", "expectedStatus": 200}
+  ]
+}
