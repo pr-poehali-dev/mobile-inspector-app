@@ -1,9 +1,11 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import AdminBlockButton from "@/components/AdminBlockButton";
 import { useApp } from "@/context/AppContext";
-import { useSharedState } from "@/hooks/useSharedState";
+import func2url from "../../../backend/func2url.json";
+
+const VIDEOS_API = (func2url as Record<string, string>)["videos"];
 
 interface Props { onBack: () => void; }
 
@@ -31,23 +33,24 @@ interface VideoItem {
   views: number;
   likes: number;
   favoritedBy: number;
+  likedByMe: boolean;
+  favoritedByMe: boolean;
   date: string;
   duration: string;
   thumbnail: string;
-  bannerImage?: string; // загруженный баннер видео (data-url)
+  bannerImage?: string;
+  videoUrl?: string;
   comments: Comment[];
 }
 
-const THUMB_COLORS = [
-  "linear-gradient(135deg, #1b3a7a, #0f2050)",
-  "linear-gradient(135deg, #7a1b1b, #501010)",
-  "linear-gradient(135deg, #1a5c40, #0d3a28)",
-  "linear-gradient(135deg, #7a5c10, #503c08)",
-  "linear-gradient(135deg, #4a1b7a, #2d1050)",
-  "linear-gradient(135deg, #7a1b50, #501030)",
-];
-
-
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 type TabType = "all" | "favorites" | "subscribed";
 type ViewType = "feed" | "player" | "channel" | "add" | "request" | "admin_requests" | "studio" | "payment";
@@ -55,16 +58,15 @@ type ViewType = "feed" | "player" | "channel" | "add" | "request" | "admin_reque
 const CONTENT_MAKER_PRICE = 4999;
 
 export default function VideoModule({ onBack }: Props) {
-  const { currentUser, hasRole, isAdmin, categories, addRoleRequest, roleRequests, resolveRoleRequest, payForRole, paymentServices, toggleSubscription, bumpStat, isContentBlocked } = useApp();
+  const { currentUser, hasRole, isAdmin, categories, addRoleRequest, roleRequests, resolveRoleRequest, payForRole, paymentServices, bumpStat, isContentBlocked } = useApp();
   const VIDEO_CATEGORIES = ["Все", ...(categories.video || [])];
 
-  const [videos, setVideos] = useSharedState<VideoItem[]>("videos_all", []);
+  const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [followingAuthors, setFollowingAuthors] = useState<number[]>([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabType>("all");
   const [category, setCategory] = useState("Все");
   const [search, setSearch] = useState("");
-  const [favorites, setFavorites] = useSharedState<number[]>(`user_favorites_${currentUser.id}`, []);
-  const [likedVideos, setLikedVideos] = useSharedState<number[]>(`user_liked_videos_${currentUser.id}`, []);
-  const [subscribedAuthors, setSubscribedAuthors] = useSharedState<number[]>(`user_subscribed_authors_${currentUser.id}`, []);
   const [view, setView] = useState<ViewType>("feed");
   const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
   const [channelAuthor, setChannelAuthor] = useState<VideoAuthor | null>(null);
@@ -72,24 +74,22 @@ export default function VideoModule({ onBack }: Props) {
   const [commentText, setCommentText] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [editingVideo, setEditingVideo] = useState<VideoItem | null>(null);
+  const [publishing, setPublishing] = useState(false);
 
-  const [addForm, setAddForm] = useState({ title: "", description: "", category: (categories.video || [])[1] || "Охрана труда", hashtags: "", youtubeUrl: "", file: "", bannerImage: "" });
+  const [addForm, setAddForm] = useState({ title: "", description: "", category: (categories.video || [])[1] || "Охрана труда", hashtags: "", youtubeUrl: "", videoFile: null as File | null, videoFileName: "", bannerImage: "" });
   const videoFileRef = useRef<HTMLInputElement>(null);
   const bannerFileRef = useRef<HTMLInputElement>(null);
   const [requestPhone, setRequestPhone] = useState(currentUser.phone || "");
   const [requestAgreed, setRequestAgreed] = useState(false);
   const [refCode, setRefCode] = useState("");
   const [refCodeStatus, setRefCodeStatus] = useState<"idle" | "valid" | "invalid">("idle");
-  const [refCodes] = useSharedState<{ code: string; active: boolean }[]>("referral_codes", [
-    { code: "PARTNER10", active: true },
-    { code: "PROMO2026", active: true },
-  ]);
+  const REF_CODES = [{ code: "PARTNER10", active: true }, { code: "PROMO2026", active: true }];
   const discountPct = refCodeStatus === "valid" ? 0.10 : 0;
   const contentMakerPrice = Math.round(CONTENT_MAKER_PRICE * (1 - discountPct));
   const checkRefCode = (code: string) => {
     const t = code.trim().toUpperCase();
     if (!t) { setRefCodeStatus("idle"); return; }
-    setRefCodeStatus(refCodes.find(r => r.code === t && r.active) ? "valid" : "invalid");
+    setRefCodeStatus(REF_CODES.find(r => r.code === t && r.active) ? "valid" : "invalid");
   };
 
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
@@ -99,35 +99,59 @@ export default function VideoModule({ onBack }: Props) {
   const myCMRequest = roleRequests.filter(r => r.userId === currentUser.id && r.role === "content_maker").slice(-1)[0];
   const cmService = paymentServices.find(s => s.name.toLowerCase().includes("контентмейкер")) || null;
 
+  const loadFeed = useCallback(async () => {
+    try {
+      const res = await fetch(`${VIDEOS_API}?action=feed&userId=${currentUser.id}`);
+      const data = await res.json();
+      setVideos(Array.isArray(data.videos) ? data.videos.map((v: VideoItem) => ({ ...v, duration: "—", comments: [] })) : []);
+      setFollowingAuthors(Array.isArray(data.following) ? data.following : []);
+    } catch {
+      showToast("⚠️ Не удалось загрузить видео. Проверьте соединение.");
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser.id]);
+
+  useEffect(() => { loadFeed(); }, [loadFeed]);
+
   const handleVideoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) setAddForm(prev => ({ ...prev, file: f.name }));
+    if (f) setAddForm(prev => ({ ...prev, videoFile: f, videoFileName: f.name }));
     e.target.value = "";
   };
   const handleBannerFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => setAddForm(prev => ({ ...prev, bannerImage: reader.result as string }));
-    reader.readAsDataURL(f);
+    fileToDataUrl(f).then(dataUrl => setAddForm(prev => ({ ...prev, bannerImage: dataUrl })));
     e.target.value = "";
   };
   const pendingVideoReqs = roleRequests.filter(r => r.status === "pending" && r.role === "content_maker");
 
-  const myAuthorId = 99;
-  const meAsAuthor: VideoAuthor = { id: myAuthorId, name: currentUser.name, avatar: currentUser.avatar, role: isAdmin ? "admin" : "content_maker" };
+  const meAsAuthor: VideoAuthor = { id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar, role: isAdmin ? "admin" : "content_maker" };
 
-  const toggleFav = (v: VideoItem) => {
-    const isFav = favorites.includes(v.id);
-    setFavorites(prev => isFav ? prev.filter(f => f !== v.id) : [...prev, v.id]);
-    setVideos(prev => prev.map(x => x.id === v.id ? { ...x, favoritedBy: x.favoritedBy + (isFav ? -1 : 1) } : x));
+  const toggleFav = async (v: VideoItem) => {
+    setVideos(prev => prev.map(x => x.id === v.id ? { ...x, favoritedByMe: !x.favoritedByMe, favoritedBy: x.favoritedBy + (x.favoritedByMe ? -1 : 1) } : x));
+    try {
+      await fetch(VIDEOS_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "favorite", id: v.id, userId: currentUser.id }) });
+    } catch { /* уже применено локально, синхронизируется при следующей загрузке */ }
   };
 
-  const toggleLike = (v: VideoItem) => {
-    const liked = likedVideos.includes(v.id);
-    setLikedVideos(prev => liked ? prev.filter(l => l !== v.id) : [...prev, v.id]);
-    setVideos(prev => prev.map(x => x.id === v.id ? { ...x, likes: x.likes + (liked ? -1 : 1) } : x));
-    if (selectedVideo?.id === v.id) setSelectedVideo(s => s ? { ...s, likes: s.likes + (liked ? -1 : 1) } : s);
+  const toggleLike = async (v: VideoItem) => {
+    setVideos(prev => prev.map(x => x.id === v.id ? { ...x, likedByMe: !x.likedByMe, likes: x.likes + (x.likedByMe ? -1 : 1) } : x));
+    if (selectedVideo?.id === v.id) setSelectedVideo(s => s ? { ...s, likedByMe: !s.likedByMe, likes: s.likes + (s.likedByMe ? -1 : 1) } : s);
+    try {
+      await fetch(VIDEOS_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "like", id: v.id, userId: currentUser.id }) });
+    } catch { /* ignore */ }
+  };
+
+  const loadComments = async (videoId: number) => {
+    try {
+      const res = await fetch(`${VIDEOS_API}?action=comments&videoId=${videoId}`);
+      const data = await res.json();
+      const comments = Array.isArray(data.comments) ? data.comments : [];
+      setSelectedVideo(s => s && s.id === videoId ? { ...s, comments } : s);
+      setVideos(prev => prev.map(x => x.id === videoId ? { ...x, comments } : x));
+    } catch { /* ignore */ }
   };
 
   const openVideo = (v: VideoItem) => {
@@ -135,21 +159,26 @@ export default function VideoModule({ onBack }: Props) {
     setSelectedVideo({ ...v, views: v.views + 1 });
     setView("player");
     setIsPlaying(false);
+    fetch(VIDEOS_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "view", id: v.id }) }).catch(() => {/* ignore */});
+    loadComments(v.id);
   };
 
-  const addComment = () => {
+  const addComment = async () => {
     if (!commentText.trim() || !selectedVideo) return;
-    const c: Comment = { id: Date.now(), author: currentUser.name, text: commentText, time: "только что" };
-    setVideos(prev => prev.map(x => x.id === selectedVideo.id ? { ...x, comments: [...x.comments, c] } : x));
-    setSelectedVideo(s => s ? { ...s, comments: [...s.comments, c] } : s);
+    const text = commentText;
     setCommentText("");
+    try {
+      await fetch(VIDEOS_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "comment", id: selectedVideo.id, userId: currentUser.id, authorName: currentUser.name, text }) });
+      loadComments(selectedVideo.id);
+    } catch {
+      showToast("⚠️ Не удалось отправить комментарий");
+    }
   };
 
   const filtered = useMemo(() => {
     let list = videos;
-    if (tab === "favorites") list = list.filter(v => favorites.includes(v.id));
-    // «Я подписался» — только видео авторов, на которых подписан пользователь
-    if (tab === "subscribed") list = list.filter(v => subscribedAuthors.includes(v.author.id));
+    if (tab === "favorites") list = list.filter(v => v.favoritedByMe);
+    if (tab === "subscribed") list = list.filter(v => followingAuthors.includes(v.author.id));
     if (!isAdmin) list = list.filter(v => !isContentBlocked("video", v.id));
     if (category !== "Все") list = list.filter(v => v.category === category);
     if (search.trim()) {
@@ -157,36 +186,76 @@ export default function VideoModule({ onBack }: Props) {
       list = list.filter(v => v.title.toLowerCase().includes(q) || v.description.toLowerCase().includes(q) || v.hashtags.some(h => h.toLowerCase().includes(q)) || v.author.name.toLowerCase().includes(q));
     }
     return list;
-  }, [videos, tab, category, search, favorites, subscribedAuthors, isAdmin, isContentBlocked]);
+  }, [videos, tab, category, search, followingAuthors, isAdmin, isContentBlocked]);
 
   const channelVideos = useMemo(() => channelAuthor ? videos.filter(v => v.author.id === channelAuthor.id) : [], [videos, channelAuthor]);
-  const myVideos = useMemo(() => videos.filter(v => v.author.id === myAuthorId), [videos]);
+  const myVideos = useMemo(() => videos.filter(v => v.author.id === currentUser.id), [videos, currentUser.id]);
 
-  const submitAdd = () => {
-    if (!addForm.title.trim()) return;
-    if (editingVideo) {
-      setVideos(prev => prev.map(v => v.id === editingVideo.id ? { ...v, title: addForm.title, description: addForm.description, category: addForm.category, hashtags: addForm.hashtags.split(/\s+/).filter(Boolean).map(h => h.startsWith("#") ? h : `#${h}`), bannerImage: addForm.bannerImage || v.bannerImage } : v));
-      showToast("✅ Видео обновлено");
-    } else {
-      setVideos(prev => [{ id: Date.now(), title: addForm.title, description: addForm.description, hashtags: addForm.hashtags.split(/\s+/).filter(Boolean).map(h => h.startsWith("#") ? h : `#${h}`), category: addForm.category, author: meAsAuthor, views: 0, likes: 0, favoritedBy: 0, date: new Date().toLocaleDateString("ru-RU"), duration: "—", thumbnail: THUMB_COLORS[Math.floor(Math.random() * THUMB_COLORS.length)], bannerImage: addForm.bannerImage || undefined, comments: [] }, ...prev]);
-      bumpStat("videos", 1);
-      showToast("✅ Видео добавлено в ленту!");
+  const submitAdd = async () => {
+    if (!addForm.title.trim() || publishing) return;
+    setPublishing(true);
+    try {
+      const hashtags = addForm.hashtags.split(/\s+/).filter(Boolean).map(h => h.startsWith("#") ? h : `#${h}`);
+      if (editingVideo) {
+        const payload: Record<string, unknown> = { action: "update", id: editingVideo.id, userId: currentUser.id, title: addForm.title, description: addForm.description, category: addForm.category, hashtags };
+        if (addForm.bannerImage && addForm.bannerImage !== editingVideo.bannerImage) payload.bannerData = addForm.bannerImage;
+        const res = await fetch(VIDEOS_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || "Ошибка обновления");
+        showToast("✅ Видео обновлено");
+      } else {
+        let videoFileData: string | undefined;
+        if (addForm.videoFile) videoFileData = await fileToDataUrl(addForm.videoFile);
+        const res = await fetch(VIDEOS_API, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "publish", authorId: meAsAuthor.id, authorName: meAsAuthor.name, authorAvatar: meAsAuthor.avatar,
+            title: addForm.title, description: addForm.description, category: addForm.category, hashtags,
+            videoFileData, bannerData: addForm.bannerImage || undefined,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || "Ошибка публикации");
+        bumpStat("videos", 1);
+        showToast("✅ Видео добавлено в ленту!");
+      }
+      await loadFeed();
+      setAddForm({ title: "", description: "", category: (categories.video || [])[1] || "Охрана труда", hashtags: "", youtubeUrl: "", videoFile: null, videoFileName: "", bannerImage: "" });
+      setEditingVideo(null);
+      setView(editingVideo ? "studio" : "feed");
+    } catch {
+      showToast("⚠️ Не удалось сохранить видео. Проверьте соединение.");
+    } finally {
+      setPublishing(false);
     }
-    setAddForm({ title: "", description: "", category: (categories.video || [])[1] || "Охрана труда", hashtags: "", youtubeUrl: "", file: "", bannerImage: "" });
-    setEditingVideo(null);
-    setView(editingVideo ? "studio" : "feed");
   };
 
-  const deleteVideo = (id: number) => {
-    setVideos(prev => prev.filter(v => v.id !== id));
-    bumpStat("videos", -1);
-    showToast("🗑️ Видео удалено");
+  const deleteVideo = async (id: number) => {
+    try {
+      const res = await fetch(VIDEOS_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "delete", id, userId: currentUser.id }) });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error);
+      setVideos(prev => prev.filter(v => v.id !== id));
+      bumpStat("videos", -1);
+      showToast("🗑️ Видео удалено");
+    } catch {
+      showToast("⚠️ Не удалось удалить видео");
+    }
   };
 
   const startEdit = (v: VideoItem) => {
     setEditingVideo(v);
-    setAddForm({ title: v.title, description: v.description, category: v.category, hashtags: v.hashtags.join(" "), youtubeUrl: "", file: "", bannerImage: v.bannerImage || "" });
+    setAddForm({ title: v.title, description: v.description, category: v.category, hashtags: v.hashtags.join(" "), youtubeUrl: "", videoFile: null, videoFileName: "", bannerImage: v.bannerImage || "" });
     setView("add");
+  };
+
+  const toggleFollow = async (authorId: number) => {
+    const wasFollowing = followingAuthors.includes(authorId);
+    setFollowingAuthors(prev => wasFollowing ? prev.filter(a => a !== authorId) : [...prev, authorId]);
+    try {
+      await fetch(VIDEOS_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "follow", followerId: currentUser.id, authorId }) });
+      showToast(wasFollowing ? "Вы отписались" : "Вы подписались!");
+    } catch { /* ignore */ }
   };
 
   // ── ADD / EDIT FORM ──
@@ -227,12 +296,12 @@ export default function VideoModule({ onBack }: Props) {
         <div><label className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 block">Ссылка YouTube / Vimeo</label>
           <input className="input-field" placeholder="https://youtube.com/watch?v=..." value={addForm.youtubeUrl} onChange={e => setAddForm(f => ({ ...f, youtubeUrl: e.target.value }))} /></div>
         <input ref={videoFileRef} type="file" accept="video/*,.mp4,.mov,.avi,.mkv" className="hidden" onChange={handleVideoFile} />
-        <button type="button" onClick={() => videoFileRef.current?.click()} className="w-full flex flex-col items-center gap-2 p-5 rounded-xl cursor-pointer transition-colors" style={{ background: addForm.file ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.04)', border: addForm.file ? '2px solid rgba(239,68,68,0.4)' : '2px dashed rgba(255,255,255,0.15)' }}>
-          <Icon name="Upload" size={24} color={addForm.file ? "#ef4444" : "rgba(255,255,255,0.3)"} />
-          <span className="text-xs" style={{ color: addForm.file ? '#ef4444' : 'rgba(255,255,255,0.4)' }}>{addForm.file ? `✓ ${addForm.file}` : "Загрузить файл MP4 (до 2 ГБ)"}</span>
+        <button type="button" onClick={() => videoFileRef.current?.click()} className="w-full flex flex-col items-center gap-2 p-5 rounded-xl cursor-pointer transition-colors" style={{ background: addForm.videoFileName ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.04)', border: addForm.videoFileName ? '2px solid rgba(239,68,68,0.4)' : '2px dashed rgba(255,255,255,0.15)' }}>
+          <Icon name="Upload" size={24} color={addForm.videoFileName ? "#ef4444" : "rgba(255,255,255,0.3)"} />
+          <span className="text-xs" style={{ color: addForm.videoFileName ? '#ef4444' : 'rgba(255,255,255,0.4)' }}>{addForm.videoFileName ? `✓ ${addForm.videoFileName}` : "Загрузить файл MP4 (до 200 МБ)"}</span>
         </button>
-        <button onClick={submitAdd} className="btn-primary flex items-center justify-center gap-2" disabled={!addForm.title.trim()}>
-          <Icon name={editingVideo ? "Check" : "Upload"} size={18} />{editingVideo ? "Сохранить изменения" : "Опубликовать видео"}
+        <button onClick={submitAdd} className="btn-primary flex items-center justify-center gap-2" disabled={!addForm.title.trim() || publishing}>
+          {publishing ? <><Icon name="Loader2" size={18} className="animate-spin" />Публикуем...</> : <><Icon name={editingVideo ? "Check" : "Upload"} size={18} />{editingVideo ? "Сохранить изменения" : "Опубликовать видео"}</>}
         </button>
       </div>
     </div>
@@ -292,7 +361,7 @@ export default function VideoModule({ onBack }: Props) {
             <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto" style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)' }}><Icon name="Video" size={36} color="#ef4444" /></div>
             <div>
               <h2 className="text-xl font-bold text-white mb-2" style={{ fontFamily: 'Montserrat, sans-serif' }}>Публикуйте свои видео</h2>
-              <p className="text-white/50 text-sm leading-relaxed">Получите роль контентмейкера и добавляйте обучающие видео в общую ленту.</p>
+              <p className="text-sm text-white/50">Оформите роль «Контентмейкер», чтобы получить доступ к загрузке видео и своему каналу</p>
             </div>
           </div>
 
@@ -433,7 +502,7 @@ export default function VideoModule({ onBack }: Props) {
 
   // ── CHANNEL ──
   if (view === "channel" && channelAuthor) {
-    const isSub = subscribedAuthors.includes(channelAuthor.id);
+    const isSub = followingAuthors.includes(channelAuthor.id);
     return (
       <div className="min-h-screen relative z-10 animate-fade-in">
         {toast && <Toast msg={toast} />}
@@ -448,12 +517,12 @@ export default function VideoModule({ onBack }: Props) {
                 <p className="text-xs text-white/40 mt-1">{channelVideos.length} видео · {channelVideos.reduce((s, v) => s + v.views, 0).toLocaleString("ru-RU")} просмотров</p>
               </div>
             </div>
-            <button onClick={() => { setSubscribedAuthors(prev => isSub ? prev.filter(a => a !== channelAuthor.id) : [...prev, channelAuthor.id]); showToast(isSub ? "Вы отписались" : "Вы подписались!"); }} className="w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all" style={{ background: isSub ? 'rgba(255,255,255,0.06)' : 'linear-gradient(135deg, #ef4444, #dc2626)', border: isSub ? '1px solid rgba(255,255,255,0.15)' : 'none', color: isSub ? 'rgba(255,255,255,0.6)' : 'white' }}>
+            <button onClick={() => toggleFollow(channelAuthor.id)} className="w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all" style={{ background: isSub ? 'rgba(255,255,255,0.06)' : 'linear-gradient(135deg, #ef4444, #dc2626)', border: isSub ? '1px solid rgba(255,255,255,0.15)' : 'none', color: isSub ? 'rgba(255,255,255,0.6)' : 'white' }}>
               <Icon name={isSub ? "Check" : "Bell"} size={15} color={isSub ? 'rgba(255,255,255,0.6)' : 'white'} />{isSub ? "Вы подписаны" : "Подписаться"}
             </button>
           </div>
           <p className="text-xs font-semibold text-white/40 uppercase tracking-wider px-1">Видео канала</p>
-          {channelVideos.map((v, i) => <VideoCard key={v.id} video={v} isFav={favorites.includes(v.id)} onToggleFav={() => toggleFav(v)} onPlay={() => openVideo(v)} onAuthorClick={() => {}} onHashtagClick={tag => { setSearch(tag); setView("feed"); setChannelAuthor(null); }} animDelay={i * 0.06} />)}
+          {channelVideos.map((v, i) => <VideoCard key={v.id} video={v} isFav={v.favoritedByMe} onToggleFav={() => toggleFav(v)} onPlay={() => openVideo(v)} onAuthorClick={() => {}} onHashtagClick={tag => { setSearch(tag); setView("feed"); setChannelAuthor(null); }} animDelay={i * 0.06} />)}
         </div>
       </div>
     );
@@ -461,20 +530,25 @@ export default function VideoModule({ onBack }: Props) {
 
   // ── PLAYER ──
   if (view === "player" && selectedVideo) {
-    const liked = likedVideos.includes(selectedVideo.id);
-    const isFav = favorites.includes(selectedVideo.id);
+    const liked = selectedVideo.likedByMe;
+    const isFav = selectedVideo.favoritedByMe;
     return (
       <div className="min-h-screen relative z-10 animate-fade-in">
         {toast && <Toast msg={toast} />}
         <ModuleHeader title={selectedVideo.title} onBack={() => setView(channelAuthor ? "channel" : "feed")} subtitle={selectedVideo.author.name} />
         <div className="max-w-2xl mx-auto px-4 pt-4 pb-8 space-y-4">
           <div className="rounded-2xl overflow-hidden relative" style={{ background: selectedVideo.thumbnail, aspectRatio: '16/9', border: '1px solid rgba(255,255,255,0.1)' }}>
-            {selectedVideo.bannerImage && <img src={selectedVideo.bannerImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-            <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
-              <button onClick={() => setIsPlaying(p => !p)} className="w-16 h-16 rounded-full flex items-center justify-center transition-transform hover:scale-110 active:scale-95" style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}><Icon name={isPlaying ? "Pause" : "Play"} size={28} color="white" /></button>
-            </div>
+            {selectedVideo.videoUrl ? (
+              <video src={selectedVideo.videoUrl} controls className="absolute inset-0 w-full h-full object-cover" poster={selectedVideo.bannerImage} />
+            ) : (
+              <>
+                {selectedVideo.bannerImage && <img src={selectedVideo.bannerImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+                <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
+                  <button onClick={() => setIsPlaying(p => !p)} className="w-16 h-16 rounded-full flex items-center justify-center transition-transform hover:scale-110 active:scale-95" style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}><Icon name={isPlaying ? "Pause" : "Play"} size={28} color="white" /></button>
+                </div>
+              </>
+            )}
             <span className="absolute top-3 right-3 tag text-xs">{selectedVideo.category}</span>
-            <div className="absolute bottom-0 left-0 right-0 p-3"><div className="h-1 bg-white/20 rounded-full overflow-hidden"><div className="h-full rounded-full transition-all duration-700" style={{ width: isPlaying ? '40%' : '0%', background: 'linear-gradient(90deg, #ef4444, #f97316)' }} /></div></div>
           </div>
 
           {/* Stats bar */}
@@ -482,11 +556,12 @@ export default function VideoModule({ onBack }: Props) {
             <span className="flex items-center gap-1.5 text-white/50 text-sm px-2.5 py-1.5 rounded-xl" style={{ background: 'rgba(255,255,255,0.05)' }}><Icon name="Eye" size={14} />{selectedVideo.views.toLocaleString("ru-RU")} просмотров</span>
             <button onClick={() => toggleLike(selectedVideo)} className="flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-xl transition-all active:scale-90" style={{ background: liked ? 'rgba(27,111,255,0.15)' : 'rgba(255,255,255,0.05)', color: liked ? '#4d8fff' : 'rgba(255,255,255,0.5)' }}><Icon name="ThumbsUp" size={14} color={liked ? '#4d8fff' : undefined} />{selectedVideo.likes}</button>
             <button onClick={() => toggleFav(selectedVideo)} className="flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-xl transition-all active:scale-90" style={{ background: isFav ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.05)', color: isFav ? '#f59e0b' : 'rgba(255,255,255,0.5)' }}><Icon name="Star" size={14} color={isFav ? '#f59e0b' : undefined} />{selectedVideo.favoritedBy}</button>
+            <AdminBlockButton kind="video" id={selectedVideo.id} authorId={selectedVideo.author.id} />
           </div>
 
-          <button onClick={() => { setChannelAuthor(selectedVideo.author); setView("channel"); }} className="w-full flex items-center gap-3 p-4 rounded-2xl text-left transition-all hover:bg-white/5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-sm font-bold text-white" style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}>{selectedVideo.author.avatar}</div>
-            <div className="flex-1"><p className="text-sm font-semibold text-white">{selectedVideo.author.name}</p><p className="text-xs text-white/40">Перейти на канал</p></div>
+          <button onClick={() => { setChannelAuthor(selectedVideo.author); setView("channel"); }} className="w-full flex items-center gap-3 p-3 rounded-2xl transition-colors hover:bg-white/5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-white font-bold" style={{ background: 'linear-gradient(135deg,#ef4444,#dc2626)' }}>{selectedVideo.author.avatar}</div>
+            <div className="flex-1 text-left"><p className="text-sm font-semibold text-white">{selectedVideo.author.name}</p><p className="text-xs text-white/40">{selectedVideo.author.role === "admin" ? "Администратор" : "Контентмейкер"}</p></div>
             <Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.3)" />
           </button>
 
@@ -576,8 +651,8 @@ export default function VideoModule({ onBack }: Props) {
               return (
                 <button key={t} onClick={() => setTab(t)} className={`flex-1 py-2 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${active ? "text-white" : "text-white/50"}`} style={{ background: active ? grad : 'rgba(255,255,255,0.06)', border: `1px solid ${active ? border : 'rgba(255,255,255,0.1)'}` }}>
                   {t === "all" && "Все видео"}
-                  {t === "subscribed" && <><Icon name="UserCheck" size={14} color={active ? "white" : "rgba(255,255,255,0.4)"} />Я подписался{subscribedAuthors.length > 0 && <span className="opacity-70 text-xs">({subscribedAuthors.length})</span>}</>}
-                  {t === "favorites" && <><Icon name="Star" size={14} color={active ? "white" : "rgba(255,255,255,0.4)"} />Избранное{favorites.length > 0 && <span className="opacity-70 text-xs">({favorites.length})</span>}</>}
+                  {t === "subscribed" && <><Icon name="UserCheck" size={14} color={active ? "white" : "rgba(255,255,255,0.4)"} />Я подписался{followingAuthors.length > 0 && <span className="opacity-70 text-xs">({followingAuthors.length})</span>}</>}
+                  {t === "favorites" && <><Icon name="Star" size={14} color={active ? "white" : "rgba(255,255,255,0.4)"} />Избранное</>}
                 </button>
               );
             })}
@@ -592,10 +667,13 @@ export default function VideoModule({ onBack }: Props) {
           ))}
         </div>
         {(search || category !== "Все") && <p className="text-xs text-white/40 px-1">Найдено: {filtered.length} видео{search && ` по «${search}»`}</p>}
-        {filtered.length > 0
-          ? filtered.map((v, i) => <VideoCard key={v.id} video={v} isFav={favorites.includes(v.id)} onToggleFav={() => toggleFav(v)} onPlay={() => openVideo(v)} onAuthorClick={a => { setChannelAuthor(a); setView("channel"); }} onHashtagClick={tag => setSearch(tag)} animDelay={i * 0.05} />)
-          : <EmptyState text={tab === "favorites" ? "Вы ещё не добавили видео в избранное" : tab === "subscribed" ? "Подпишитесь на авторов, чтобы видеть их видео здесь" : "Ничего не найдено"} />
-        }
+        {loading ? (
+          <div className="text-center py-14"><Icon name="Loader2" size={28} color="rgba(255,255,255,0.3)" className="mx-auto mb-3 animate-spin" /><p className="text-white/30 text-sm">Загружаем видео...</p></div>
+        ) : filtered.length > 0 ? (
+          filtered.map((v, i) => <VideoCard key={v.id} video={v} isFav={v.favoritedByMe} onToggleFav={() => toggleFav(v)} onPlay={() => openVideo(v)} onAuthorClick={a => { setChannelAuthor(a); setView("channel"); }} onHashtagClick={tag => setSearch(tag)} animDelay={i * 0.05} />)
+        ) : (
+          <EmptyState text={tab === "favorites" ? "Пока нет избранных видео" : tab === "subscribed" ? "Вы ещё ни на кого не подписаны" : "Видео пока нет"} />
+        )}
       </div>
     </div>
   );
@@ -617,7 +695,6 @@ function VideoCard({ video, isFav, onToggleFav, onPlay, onAuthorClick, onHashtag
       <div className="w-full relative" style={{ aspectRatio: '16/7', background: video.thumbnail }}>
         {video.bannerImage && <img src={video.bannerImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
         <button onClick={onPlay} className="absolute inset-0 flex items-center justify-center w-full" style={{ background: 'rgba(0,0,0,0.3)' }}><div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}><Icon name="Play" size={18} color="white" /></div></button>
-        <span className="absolute bottom-2 right-2 text-xs text-white font-mono px-2 py-0.5 rounded-lg pointer-events-none" style={{ background: 'rgba(0,0,0,0.65)' }}>{video.duration}</span>
         <span className="absolute top-2 left-2 text-xs px-2 py-0.5 rounded-lg font-medium pointer-events-none" style={{ background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.85)' }}>{video.category.split(" ")[0]}</span>
         <div className="absolute top-2 right-2"><AdminBlockButton kind="video" id={video.id} authorId={video.author.id} /></div>
       </div>
@@ -637,7 +714,6 @@ function VideoCard({ video, isFav, onToggleFav, onPlay, onAuthorClick, onHashtag
         <div className="flex items-center gap-3 pt-2 border-t border-white/5">
           <span className="flex items-center gap-1 text-white/40 text-xs"><Icon name="Eye" size={11} />{video.views.toLocaleString("ru-RU")}</span>
           <span className="flex items-center gap-1 text-white/40 text-xs"><Icon name="ThumbsUp" size={11} />{video.likes}</span>
-          <span className="flex items-center gap-1 text-white/40 text-xs"><Icon name="MessageCircle" size={11} />{video.comments.length}</span>
           <button onClick={e => { e.stopPropagation(); onToggleFav(); }} className="ml-auto flex items-center gap-1 px-2 py-1 rounded-lg transition-all active:scale-90" style={{ background: isFav ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.06)' }}>
             <Icon name="Star" size={13} color={isFav ? '#f59e0b' : 'rgba(255,255,255,0.4)'} /><span className="text-xs" style={{ color: isFav ? '#f59e0b' : 'rgba(255,255,255,0.4)' }}>{video.favoritedBy}</span>
           </button>
@@ -657,5 +733,9 @@ function EmptyState({ text }: { text: string }) {
 }
 
 function Toast({ msg }: { msg: string }) {
-  return <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-2xl text-sm font-medium text-white animate-fade-up" style={{ background: 'rgba(239,68,68,0.9)', backdropFilter: 'blur(12px)', border: '1px solid rgba(239,68,68,0.5)', animationFillMode: 'forwards' }}>{msg}</div>;
+  return (
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-medium text-white animate-fade-in" style={{ background: 'rgba(20,20,30,0.95)', border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(10px)' }}>
+      {msg}
+    </div>
+  );
 }
