@@ -27,7 +27,6 @@ interface Executor {
   reviews: Review[];
 }
 
-const CATEGORIES = ["Ремонт", "Консультации", "Доставка", "Клининг", "IT-услуги"];
 const CITIES = ["Все города", "Москва", "Санкт-Петербург", "Казань", "Екатеринбург", "Новосибирск"];
 const RATING_FILTERS = [{ v: 0, label: "Любой" }, { v: 4, label: "4.0+" }, { v: 4.5, label: "4.5+" }];
 const EXECUTOR_PRICE = 4999; // ₽/мес
@@ -37,7 +36,8 @@ const EXECUTOR_PRICE = 4999; // ₽/мес
 type ViewMode = "list" | "profile" | "request" | "payment" | "dashboard" | "editService" | "editCase" | "editReview";
 
 export default function ServicesModule({ onBack }: Props) {
-  const { currentUser, hasRole, isAdmin, addRoleRequest, roleRequests, payForRole, roleGrants } = useApp();
+  const { currentUser, hasRole, isAdmin, addRoleRequest, roleRequests, payForRole, roleGrants, categories } = useApp();
+  const CATEGORIES = categories.services || [];
 
   const [executors, setExecutors] = useSharedState<Executor[]>("marketplace_executors", []);
   const [view, setView] = useState<ViewMode>("list");
@@ -90,7 +90,7 @@ export default function ServicesModule({ onBack }: Props) {
 
   const ensureMyExecutor = () => {
     if (myExecutor) return myExecutor;
-    const created: Executor = { id: currentUser.id, ownerId: currentUser.id, name: currentUser.name, banner: "", category: CATEGORIES[0], city: currentUser.location || "Москва", address: "", about: "", contacts: currentUser.phone || "", rating: 5.0, visible: true, services: [], cases: [], reviews: [] };
+    const created: Executor = { id: currentUser.id, ownerId: currentUser.id, name: currentUser.name, banner: "", category: CATEGORIES[0] || "Иное", city: currentUser.location || "Москва", address: "", about: "", contacts: currentUser.phone || "", rating: 5.0, visible: true, services: [], cases: [], reviews: [] };
     setExecutors(prev => [created, ...prev]);
     return created;
   };

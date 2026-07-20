@@ -36,6 +36,7 @@ const SECTIONS = [
   { key: "doc_types", label: "Типы документов", icon: "Tag", color: "#06b6d4" },
   { key: "checklists", label: "Чек-листы", icon: "CheckSquare", color: "#8b5cf6" },
   { key: "learning", label: "Обучение", icon: "GraduationCap", color: "#3b82f6" },
+  { key: "services", label: "Услуги", icon: "ShoppingBag", color: "#ec4899" },
 ];
 
 const GRANTABLE: UserRole[] = ["content_maker", "editor", "documentor", "executor", "school", "admin"];
