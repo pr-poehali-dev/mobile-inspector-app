@@ -1,0 +1,6 @@
+{
+  "tests": [
+    {"name": "Неверный логин", "method": "POST", "path": "/", "body": {"action": "login", "login": "nonexistent", "password": "wrong"}, "expectedStatus": 401, "expectedBody": {"error": "Неверный логин или пароль"}, "bodyMatcher": "partial"},
+    {"name": "OPTIONS preflight", "method": "OPTIONS", "path": "/", "expectedStatus": 200}
+  ]
+}

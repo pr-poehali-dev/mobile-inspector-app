@@ -1,0 +1,6 @@
+{
+  "tests": [
+    {"name": "Проверка невалидного кода", "method": "POST", "path": "/", "body": {"action": "check", "code": "NOPE"}, "expectedStatus": 200, "expectedBody": {"valid": false}, "bodyMatcher": "partial"},
+    {"name": "OPTIONS preflight", "method": "OPTIONS", "path": "/", "expectedStatus": 200}
+  ]
+}

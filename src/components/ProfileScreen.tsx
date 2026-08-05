@@ -1,14 +1,19 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp, I18N } from "@/context/AppContext";
 import { AppScreen } from "@/pages/Index";
 import { useSharedState } from "@/hooks/useSharedState";
+import func2url from "../../backend/func2url.json";
+
+const REFERRALS_API = (func2url as Record<string, string>)["referrals"];
 
 interface Props {
   onBack: () => void;
   onLogout: () => void;
+  onLogoutAll: () => void;
   onNavigate: (s: AppScreen) => void;
+  sessionToken: string;
 }
 
 const LEGAL_DOCS = [
@@ -32,13 +37,14 @@ const THEMES = [
   { id: "brand" as const, label: "Фирменная", desc: "Красная на чёрном", swatch: "linear-gradient(135deg, #0d0000, #ef4444)" },
 ];
 
-export default function ProfileScreen({ onBack, onLogout, onNavigate }: Props) {
+export default function ProfileScreen({ onBack, onLogout, onLogoutAll, onNavigate, sessionToken }: Props) {
   const { currentUser, updateCurrentUser, myStats, theme, setTheme, lang, setLang, isAdmin, hasRole } = useApp();
   const t = I18N[lang];
   const [contentToast, setContentToast] = useState<string | null>(null);
   const showContentToast = (m: string) => { setContentToast(m); setTimeout(() => setContentToast(null), 2200); };
   const [openDoc, setOpenDoc] = useState<string | null>(null);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
+  const [logoutAllConfirm, setLogoutAllConfirm] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [settingsModal, setSettingsModal] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -47,9 +53,74 @@ export default function ProfileScreen({ onBack, onLogout, onNavigate }: Props) {
   const [newPhone, setNewPhone] = useState("");
   const [notifSettings, setNotifSettings] = useSharedState(`notif_settings_${currentUser.id}`, { push: true, email: true, sms: false });
   const fileRef = useRef<HTMLInputElement>(null);
+  void sessionToken;
+
+  // Реферальная программа
+  const [showReferral, setShowReferral] = useState(false);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  const [referralTotal, setReferralTotal] = useState(0);
+  const [referralBalance, setReferralBalance] = useState(0);
+  const [referralTx, setReferralTx] = useState<{ id: number; role: string; amount: number; date: string }[]>([]);
+  const [referralLoading, setReferralLoading] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [withdrawRequisites, setWithdrawRequisites] = useState("");
+  const [withdrawSending, setWithdrawSending] = useState(false);
+
+  const loadReferralData = useCallback(async () => {
+    setReferralLoading(true);
+    try {
+      const [codeRes, bonusRes] = await Promise.all([
+        fetch(`${REFERRALS_API}?action=myCode&userId=${currentUser.id}`),
+        fetch(`${REFERRALS_API}?action=myBonuses&userId=${currentUser.id}`),
+      ]);
+      const codeData = await codeRes.json();
+      const bonusData = await bonusRes.json();
+      setReferralCode(codeData.code || null);
+      setReferralTotal(bonusData.total || 0);
+      setReferralBalance(bonusData.balance ?? bonusData.total ?? 0);
+      setReferralTx(Array.isArray(bonusData.transactions) ? bonusData.transactions : []);
+    } catch { /* ignore */ }
+    setReferralLoading(false);
+  }, [currentUser.id]);
+
+  useEffect(() => { if (showReferral) loadReferralData(); }, [showReferral, loadReferralData]);
+
+  const ROLE_RU: Record<string, string> = { content_maker: "Контентмейкер", editor: "Редактор", documentor: "Документовед", executor: "Исполнитель", school: "Школа" };
+  const referralLink = referralCode ? `${window.location.origin}/?ref=${referralCode}` : "";
+  const copyReferralLink = () => { if (referralLink) { navigator.clipboard?.writeText(referralLink); showContentToast("Ссылка скопирована"); } };
+  const shareReferralLink = () => {
+    if (!referralLink) return;
+    if (navigator.share) {
+      navigator.share({ title: "Мобильный инспектор", text: "Присоединяйтесь по моей ссылке:", url: referralLink }).catch(() => { /* пользователь отменил */ });
+    } else {
+      copyReferralLink();
+    }
+  };
+  const submitWithdraw = async () => {
+    const amount = Number(withdrawAmount);
+    if (!amount || amount <= 0 || !withdrawRequisites.trim() || withdrawSending) return;
+    setWithdrawSending(true);
+    try {
+      const res = await fetch(REFERRALS_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "requestWithdraw", userId: currentUser.id, amount, requisites: withdrawRequisites.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) { showContentToast(data.error || "⚠️ Не удалось отправить заявку"); return; }
+      showContentToast("✅ Заявка на вывод отправлена");
+      setWithdrawAmount("");
+      setWithdrawRequisites("");
+      await loadReferralData();
+    } catch {
+      showContentToast("⚠️ Не удалось отправить заявку");
+    } finally {
+      setWithdrawSending(false);
+    }
+  };
 
   const mainRole = currentUser.roles.find(r => r !== "user") || currentUser.roles[0] || "user";
   const roleInfo = ROLE_LABELS[mainRole] || ROLE_LABELS.user;
+  void roleInfo;
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -76,6 +147,84 @@ export default function ProfileScreen({ onBack, onLogout, onNavigate }: Props) {
               Документ соответствует требованиям законодательства РФ, в т.ч. Федерального закона № 152-ФЗ «О персональных данных».{"\n\n"}Полный текст доступен по запросу: privacy@mobile-inspector.ru{"\n\n"}ООО «Мобильный Инспектор», г. Москва{"\n"}Дата обновления: 01.06.2026
             </p>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── ПРОГРАММА РЕФЕРАЛОВ ──
+  if (showReferral) {
+    return (
+      <div className="min-h-screen relative z-10 animate-fade-in">
+        {contentToast && <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-2xl text-sm font-medium text-white animate-fade-up" style={{ background: 'rgba(16,185,129,0.9)', backdropFilter: 'blur(12px)' }}>{contentToast}</div>}
+        <ModuleHeader title="Реферальная программа" onBack={() => setShowReferral(false)} icon="Gift" iconColor="#10b981" />
+        <div className="max-w-2xl mx-auto px-4 pt-5 pb-8 space-y-4">
+          {referralLoading ? (
+            <div className="text-center py-14"><Icon name="Loader2" size={28} color="rgba(255,255,255,0.3)" className="mx-auto mb-3 animate-spin" /><p className="text-white/30 text-sm">Загружаем данные...</p></div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="glass-strong rounded-2xl p-4 text-center">
+                  <p className="text-xs text-white/40 uppercase tracking-wider mb-1">Всего заработано</p>
+                  <p className="text-2xl font-bold text-green-400">{referralTotal.toLocaleString("ru-RU")} ₽</p>
+                </div>
+                <div className="glass-strong rounded-2xl p-4 text-center">
+                  <p className="text-xs text-white/40 uppercase tracking-wider mb-1">Доступно к выводу</p>
+                  <p className="text-2xl font-bold text-white">{referralBalance.toLocaleString("ru-RU")} ₽</p>
+                </div>
+              </div>
+
+              <div className="glass rounded-2xl p-4 space-y-3">
+                <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">Ваш реферальный код</p>
+                <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)' }}>
+                  <span className="text-lg font-bold text-green-400 flex-1 tracking-wider">{referralCode || "—"}</span>
+                  <button onClick={() => { if (referralCode) { navigator.clipboard?.writeText(referralCode); showContentToast("Код скопирован"); } }} className="p-2 rounded-lg hover:bg-white/10"><Icon name="Copy" size={16} color="rgba(255,255,255,0.6)" /></button>
+                </div>
+                <p className="text-xs text-white/40">Персональная ссылка для приглашений:</p>
+                <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  <span className="text-xs text-white/60 flex-1 truncate">{referralLink || "—"}</span>
+                  <button onClick={copyReferralLink} className="p-2 rounded-lg hover:bg-white/10 flex-shrink-0"><Icon name="Copy" size={14} color="rgba(255,255,255,0.6)" /></button>
+                </div>
+                <button onClick={shareReferralLink} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: 'linear-gradient(135deg,#10b981,#059669)' }}>
+                  <Icon name="Share2" size={15} color="white" />Поделиться
+                </button>
+              </div>
+
+              <div className="glass rounded-2xl p-4 flex items-start gap-3" style={{ border: '1px solid rgba(16,185,129,0.2)', background: 'rgba(16,185,129,0.05)' }}>
+                <Icon name="Info" size={15} color="#10b981" className="flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-white/60 leading-relaxed">Поделитесь кодом или ссылкой — когда кто-то укажет ваш код при заявке на платную роль и оплатит её, вам начислится 10% от суммы оплаты (не более 5 000 ₽ за одну покупку).</p>
+              </div>
+
+              <div className="glass rounded-2xl p-4 space-y-3">
+                <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">Заявка на вывод средств</p>
+                <input className="input-field text-sm" type="number" placeholder="Сумма, ₽" value={withdrawAmount} onChange={e => setWithdrawAmount(e.target.value)} />
+                <input className="input-field text-sm" placeholder="Реквизиты для перевода (карта / СБП)" value={withdrawRequisites} onChange={e => setWithdrawRequisites(e.target.value)} />
+                <button onClick={submitWithdraw} disabled={!Number(withdrawAmount) || !withdrawRequisites.trim() || withdrawSending || Number(withdrawAmount) > referralBalance} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: 'linear-gradient(135deg,#3b82f6,#2563eb)' }}>
+                  {withdrawSending ? <><Icon name="Loader2" size={15} className="animate-spin" />Отправляем...</> : <><Icon name="Send" size={15} />Запросить вывод</>}
+                </button>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-2 px-1">История начислений</p>
+                {referralTx.length === 0 ? (
+                  <div className="glass rounded-2xl p-6 text-center text-white/30 text-sm">Пока нет начислений</div>
+                ) : (
+                  <div className="glass rounded-2xl overflow-hidden divide-y divide-white/5">
+                    {referralTx.map(tx => (
+                      <div key={tx.id} className="flex items-center gap-3 px-4 py-3">
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(16,185,129,0.15)' }}><Icon name="TrendingUp" size={14} color="#10b981" /></div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white/80">{ROLE_RU[tx.role] || tx.role}</p>
+                          <p className="text-xs text-white/30">{tx.date}</p>
+                        </div>
+                        <span className="text-sm font-semibold text-green-400 flex-shrink-0">+{tx.amount.toLocaleString("ru-RU")} ₽</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
@@ -256,6 +405,13 @@ export default function ProfileScreen({ onBack, onLogout, onNavigate }: Props) {
           )}
         </div>
 
+        {/* Реферальная программа */}
+        <button onClick={() => setShowReferral(true)} className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left animate-fade-up opacity-0 delay-150" style={{ animationFillMode: 'forwards', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)' }}>
+          <Icon name="Gift" size={18} color="#10b981" />
+          <span className="text-sm font-medium text-white flex-1">Реферальная программа</span>
+          <Icon name="ChevronRight" size={16} color="rgba(16,185,129,0.5)" />
+        </button>
+
         {/* Settings */}
         <div className="animate-fade-up opacity-0 delay-200" style={{ animationFillMode: 'forwards' }}>
           <p className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-2 px-1">{t.settings}</p>
@@ -283,6 +439,11 @@ export default function ProfileScreen({ onBack, onLogout, onNavigate }: Props) {
               <span className="text-sm text-white/80 flex-1">Изменить номер телефона</span>
               <Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.2)" />
             </button>
+            <button onClick={() => setLogoutAllConfirm(true)} className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/5 transition-colors text-left">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(239,68,68,0.12)' }}><Icon name="LogOut" size={16} color="#ef4444" /></div>
+              <span className="text-sm text-white/80 flex-1">Выйти на всех устройствах</span>
+              <Icon name="ChevronRight" size={16} color="rgba(255,255,255,0.2)" />
+            </button>
             <div className="px-4 py-3">
               <p className="text-xs text-white/40 mb-2">Юридические документы</p>
               {LEGAL_DOCS.map(doc => (
@@ -307,6 +468,17 @@ export default function ProfileScreen({ onBack, onLogout, onNavigate }: Props) {
             <div className="flex gap-3">
               <button onClick={() => setLogoutConfirm(false)} className="btn-ghost flex-1 text-sm">Отмена</button>
               <button onClick={onLogout} className="flex-1 py-3 rounded-xl text-sm font-semibold text-white" style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}>Выйти</button>
+            </div>
+          </div>
+        )}
+
+        {/* Logout all devices */}
+        {logoutAllConfirm && (
+          <div className="glass rounded-2xl p-4 animate-scale-in" style={{ border: '1px solid rgba(239,68,68,0.3)' }}>
+            <p className="text-sm text-white font-medium mb-3 text-center">Завершить все сессии на всех устройствах?</p>
+            <div className="flex gap-3">
+              <button onClick={() => setLogoutAllConfirm(false)} className="btn-ghost flex-1 text-sm">Отмена</button>
+              <button onClick={onLogoutAll} className="flex-1 py-3 rounded-xl text-sm font-semibold text-white" style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}>Выйти везде</button>
             </div>
           </div>
         )}

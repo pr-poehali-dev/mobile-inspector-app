@@ -1,5 +1,17 @@
 import { createContext, useContext, useState, useRef, ReactNode, useEffect } from "react";
 import { useSharedState } from "@/hooks/useSharedState";
+import func2url from "../../backend/func2url.json";
+
+const REFERRALS_API = (func2url as Record<string, string>)["referrals"];
+
+function payoutReferralBonus(userId: number, requestId: number, role: string, referralCode: string | undefined, amount: number | undefined) {
+  if (!referralCode || !amount) return;
+  fetch(REFERRALS_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "payoutBonus", userId, requestId, role, amount, referralCode }),
+  }).catch(() => { /* бонус попробуем начислить в другой раз, не критично для основного потока */ });
+}
 
 export type UserRole = "user" | "admin" | "content_maker" | "editor" | "documentor" | "executor" | "school" | "guest";
 export type ThemeMode = "dark" | "light" | "brand";
@@ -32,6 +44,10 @@ export interface RoleRequest {
   status: "pending" | "approved" | "rejected";
   requiresPayment?: boolean;
   paid?: boolean;
+  referralCode?: string;
+  originalPrice?: number;
+  finalPrice?: number;
+  referralBonusPaid?: boolean;
 }
 
 export interface RoleGrant {
@@ -105,7 +121,7 @@ interface AppContextType {
 
   // role requests
   roleRequests: RoleRequest[];
-  addRoleRequest: (role: "content_maker" | "editor" | "documentor" | "executor" | "school", phone?: string, requiresPayment?: boolean) => void;
+  addRoleRequest: (role: "content_maker" | "editor" | "documentor" | "executor" | "school", phone?: string, requiresPayment?: boolean, referralCode?: string, originalPrice?: number, finalPrice?: number) => void;
   resolveRoleRequest: (id: number, approve: boolean) => void;
   payForRole: (requestId: number) => void;
 
@@ -162,8 +178,6 @@ interface AppContextType {
   isAdmin: boolean;
   hasRole: (r: UserRole) => boolean;
 }
-
-const ADMIN_PHONE = "79682619505";
 
 const DEFAULT_CATEGORIES: Record<string, string[]> = {
   video: ["Промышленная безопасность", "Охрана труда", "Пожарная безопасность", "Экологическая безопасность", "Информационная безопасность", "Транспортная безопасность", "Иное"],
@@ -306,8 +320,8 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
     setNotifications(prev => [{ id: Date.now() + Math.random(), userId, text, date: new Date().toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }), read: false, type }, ...prev]);
   };
 
-  const addRoleRequest = (role: "content_maker" | "editor" | "documentor" | "executor" | "school", phone?: string, requiresPayment?: boolean) => {
-    setRoleRequests(prev => [...prev, { id: Date.now(), userId: currentUser.id, userName: currentUser.name, phone: phone || currentUser.phone, role, date: new Date().toLocaleDateString("ru-RU"), status: "pending", requiresPayment: !!requiresPayment, paid: false }]);
+  const addRoleRequest = (role: "content_maker" | "editor" | "documentor" | "executor" | "school", phone?: string, requiresPayment?: boolean, referralCode?: string, originalPrice?: number, finalPrice?: number) => {
+    setRoleRequests(prev => [...prev, { id: Date.now(), userId: currentUser.id, userName: currentUser.name, phone: phone || currentUser.phone, role, date: new Date().toLocaleDateString("ru-RU"), status: "pending", requiresPayment: !!requiresPayment, paid: false, referralCode: referralCode || undefined, originalPrice, finalPrice, referralBonusPaid: false }]);
   };
 
   const resolveRoleRequest = (id: number, approve: boolean) => {
@@ -323,8 +337,12 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
         const validUntil = new Date(Date.now() + 30 * 24 * 3600 * 1000).toLocaleDateString("ru-RU");
         setRoleGrants(g => [...g.filter(x => !(x.userId === r.userId && x.role === r.role)), { userId: r.userId, role: r.role, validUntil, grantedAt: new Date().toLocaleDateString("ru-RU") }]);
         addNotification(r.userId, `Вам выдана роль. Доступ активен до ${validUntil}.`, "role");
+        // Бесплатная роль (например «Школа») — фиксированный бонус продажнику 1000₽, если указан реферальный код
+        if (r.referralCode && !r.referralBonusPaid) {
+          payoutReferralBonus(r.userId, r.id, r.role, r.referralCode, 1000);
+        }
       }
-      return { ...r, status: approve ? "approved" : "rejected" };
+      return { ...r, status: approve ? "approved" : "rejected", referralBonusPaid: approve && r.referralCode ? true : r.referralBonusPaid };
     }));
   };
 
@@ -335,7 +353,10 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
       const validUntil = new Date(Date.now() + 365 * 24 * 3600 * 1000).toLocaleDateString("ru-RU");
       setRoleGrants(g => [...g.filter(x => !(x.userId === r.userId && x.role === r.role)), { userId: r.userId, role: r.role, validUntil, grantedAt: new Date().toLocaleDateString("ru-RU") }]);
       addNotification(r.userId, `Оплата принята. Роль активна до ${validUntil}.`, "role");
-      return { ...r, paid: true };
+      if (r.referralCode && !r.referralBonusPaid) {
+        payoutReferralBonus(r.userId, r.id, r.role, r.referralCode, r.finalPrice || r.originalPrice);
+      }
+      return { ...r, paid: true, referralBonusPaid: r.referralCode ? true : r.referralBonusPaid };
     }));
   };
 
@@ -385,7 +406,8 @@ export function AppProvider({ children, initialUser }: { children: ReactNode; in
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
-  const isAdmin = currentUser.roles.includes("admin") || currentUser.phone === ADMIN_PHONE;
+  // roles приходят только с сервера (после проверки пароля в БД) — клиентских исключений по телефону больше нет
+  const isAdmin = currentUser.roles.includes("admin");
   const hasRole = (r: UserRole) => currentUser.roles.includes(r) || isAdmin;
 
   const value: AppContextType = {
@@ -416,8 +438,6 @@ export function useApp() {
   if (!ctx) throw new Error("useApp must be used within AppProvider");
   return ctx;
 }
-
-export { ADMIN_PHONE };
 
 // Simple i18n dictionary
 export const I18N: Record<Lang, Record<string, string>> = {

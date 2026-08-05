@@ -1,0 +1,6 @@
+{
+  "tests": [
+    {"name": "Библиотека опубликованных курсов", "method": "GET", "path": "/?action=published", "expectedStatus": 200, "expectedBody": {"courses": []}, "bodyMatcher": "partial"},
+    {"name": "OPTIONS preflight", "method": "OPTIONS", "path": "/", "expectedStatus": 200}
+  ]
+}

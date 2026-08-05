@@ -15,7 +15,10 @@ import ServicesModule from "@/components/modules/ServicesModule";
 import ProfileScreen from "@/components/ProfileScreen";
 import AdminPanel from "@/components/AdminPanel";
 import UsersScreen from "@/components/UsersScreen";
-import { AppProvider, AppUser, ADMIN_PHONE } from "@/context/AppContext";
+import { AppProvider, AppUser } from "@/context/AppContext";
+import func2url from "../../backend/func2url.json";
+
+const AUTH_API = (func2url as Record<string, string>)["auth"];
 
 export type AppScreen =
   | "auth"
@@ -36,44 +39,38 @@ export type AppScreen =
   | "users";
 
 export interface User {
+  id: number; // реальный id из БД (mi_users.id) — приходит только с сервера
+  token: string; // серверный токен сессии
   email: string;
-  phone?: string; // используется только для служебного входа админа
+  phone?: string;
   name: string;
-  role: "user" | "admin" | "content_maker" | "editor" | "documentor" | "guest";
-  avatar?: string;
-  contentMakerRequestPending?: boolean;
-  editorRequestPending?: boolean;
+  roles: string[]; // полный список ролей с сервера, включая admin если применимо
+  login?: string;
+  location?: string;
+  bio?: string;
+  refCode?: string;
 }
 
-// Стабильный числовой id по email — идентичность пользователя сохраняется между входами
-function idFromEmail(email: string): number {
-  const norm = (email || "").trim().toLowerCase();
-  let hash = 0;
-  for (let i = 0; i < norm.length; i++) hash = (hash * 31 + norm.charCodeAt(i)) % 1000000007;
-  // Сдвигаем диапазон, чтобы не пересекаться с демо-пользователями (id 1..50)
-  return 1000 + (hash % 9_000_000);
-}
-
+// id и roles всегда приходят с сервера (после проверки в БД) — клиент им только доверяет для отображения
 function makeAppUser(u: User): AppUser {
-  const isAdmin = u.phone === ADMIN_PHONE || u.role === "admin";
   return {
-    id: isAdmin ? 1 : idFromEmail(u.email),
+    id: u.id,
     phone: u.phone || "",
     name: u.name,
     email: u.email,
-    location: "Москва",
+    location: u.location || "Москва",
     avatar: u.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(),
-    roles: isAdmin ? ["admin"] : [u.role],
+    roles: (u.roles && u.roles.length ? u.roles : ["user"]) as AppUser["roles"],
     blocked: false,
     bannedFromForum: false,
     subscribers: [],
     subscriptions: [],
-    bio: "",
+    bio: u.bio || "",
     createdAt: new Date().toLocaleDateString("ru-RU"),
   };
 }
 
-function AppShell({ user, onLogout }: { user: User; onLogout: () => void }) {
+function AppShell({ user, onLogout, onLogoutAll }: { user: User; onLogout: () => void; onLogoutAll: () => void }) {
   const [screen, setScreen] = useState<AppScreen>("dashboard");
   const navigate = (s: AppScreen) => setScreen(s);
 
@@ -95,7 +92,7 @@ function AppShell({ user, onLogout }: { user: User; onLogout: () => void }) {
       {screen === "ai" && <AIModule onBack={() => navigate("dashboard")} />}
       {screen === "sales" && <SalesModule onBack={() => navigate("dashboard")} />}
       {screen === "services" && <ServicesModule onBack={() => navigate("dashboard")} />}
-      {screen === "profile" && <ProfileScreen onBack={() => navigate("dashboard")} onLogout={onLogout} onNavigate={navigate} />}
+      {screen === "profile" && <ProfileScreen onBack={() => navigate("dashboard")} onLogout={onLogout} onLogoutAll={onLogoutAll} onNavigate={navigate} sessionToken={user.token} />}
       {screen === "admin" && <AdminPanel onBack={() => navigate("dashboard")} />}
       {screen === "users" && <UsersScreen onBack={() => navigate("dashboard")} onNavigate={navigate} />}
     </div>
@@ -116,21 +113,51 @@ function clearSession() {
 
 export default function Index() {
   const [user, setUser] = useState<User | null>(() => loadSession());
+  const [checkingSession, setCheckingSession] = useState(true);
 
-  // При обновлении страницы сессия восстанавливается из localStorage
+  // При загрузке приложения проверяем токен на сервере — если сессия отозвана
+  // (logout на другом устройстве, блокировка), выкидываем на экран входа.
   useEffect(() => {
     const saved = loadSession();
-    if (saved && !user) setUser(saved);
+    if (!saved || !saved.token) { setCheckingSession(false); return; }
+    fetch(`${AUTH_API}?action=session&token=${encodeURIComponent(saved.token)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.user) {
+          const refreshed: User = { ...saved, id: data.user.id, name: data.user.name, roles: data.user.roles, email: data.user.email, phone: data.user.phone, location: data.user.location, bio: data.user.bio, refCode: data.user.refCode };
+          saveSession(refreshed);
+          setUser(refreshed);
+        } else {
+          clearSession();
+          setUser(null);
+        }
+      })
+      .catch(() => { /* при отсутствии сети остаёмся с локально сохранённой сессией */ })
+      .finally(() => setCheckingSession(false));
   }, []);
 
   const handleLogin = (u: User) => { saveSession(u); setUser(u); };
-  const handleLogout = () => { clearSession(); setUser(null); };
+  const handleLogout = () => {
+    if (user?.token) {
+      fetch(AUTH_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "logout", token: user.token }) }).catch(() => { /* ignore */ });
+    }
+    clearSession();
+    setUser(null);
+  };
+  const handleLogoutAll = () => {
+    if (user?.token) {
+      fetch(AUTH_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "logoutAll", token: user.token }) }).catch(() => { /* ignore */ });
+    }
+    clearSession();
+    setUser(null);
+  };
 
+  if (checkingSession) return null;
   if (!user) return <AuthScreen onLogin={handleLogin} />;
 
   return (
     <AppProvider initialUser={makeAppUser(user)}>
-      <AppShell user={user} onLogout={handleLogout} />
+      <AppShell user={user} onLogout={handleLogout} onLogoutAll={handleLogoutAll} />
     </AppProvider>
   );
 }

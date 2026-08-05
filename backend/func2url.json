@@ -1,4 +1,7 @@
 {
+  "referrals": "https://functions.poehali.dev/bbf072e5-3dce-41d3-941f-556762e5d2fc",
+  "courses": "https://functions.poehali.dev/4bf700b9-cb26-46a8-b6f4-810749006cbf",
+  "auth": "https://functions.poehali.dev/04586d8a-ba8b-436d-a6bd-1315c006f5c3",
   "documents": "https://functions.poehali.dev/83a090c6-d76d-435d-bbc4-5ceb976e72fe",
   "forum": "https://functions.poehali.dev/2b1568d5-1967-474f-b28a-4517aeb6f116",
   "rfp": "https://functions.poehali.dev/8f084300-c6b7-48df-a63e-c9126c782ccd",

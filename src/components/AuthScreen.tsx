@@ -9,55 +9,8 @@ interface Props {
 
 type Step = "welcome" | "email" | "otp" | "consent" | "credentials" | "login" | "admin" | "forgotEmail" | "forgotOtp" | "resetPassword";
 
-const ADMIN_PHONE_DIGITS = "79682619505";
-const APP_STATE_API = (func2url as Record<string, string>)["app-state"];
 const EMAIL_AUTH_API = (func2url as Record<string, string>)["email-auth"];
-const ACCOUNTS_KEY = "mi_accounts_v1";
-
-// ── Хранилище аккаунтов — общая база данных (не localStorage!) ──
-// Работает напрямую с сервером, чтобы вход/регистрация были одинаковы на любом устройстве.
-interface StoredAccount { email: string; name: string; login: string; password: string; }
-
-async function fetchAccounts(): Promise<StoredAccount[]> {
-  try {
-    const res = await fetch(`${APP_STATE_API}?key=${encodeURIComponent(ACCOUNTS_KEY)}`);
-    const data = await res.json();
-    return Array.isArray(data.value) ? data.value : [];
-  } catch {
-    // Резервный вариант — localStorage (на случай отсутствия сети)
-    try { return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]"); } catch { return []; }
-  }
-}
-
-async function saveAccount(acc: StoredAccount): Promise<void> {
-  const list = (await fetchAccounts()).filter(a => (a.email || "") !== acc.email);
-  list.push(acc);
-  try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list)); } catch { /* ignore */ }
-  await fetch(APP_STATE_API, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ key: ACCOUNTS_KEY, value: list }),
-  }).catch(() => {/* ignore */});
-}
-
-async function findAccount(loginOrEmail: string): Promise<StoredAccount | undefined> {
-  const id = loginOrEmail.trim().toLowerCase();
-  const list = await fetchAccounts();
-  return list.find(a => (a.login || "").toLowerCase() === id || (a.email || "").toLowerCase() === id);
-}
-
-async function updateAccountPassword(email: string, newPassword: string): Promise<void> {
-  const list = await fetchAccounts();
-  const idx = list.findIndex(a => (a.email || "").toLowerCase() === email.trim().toLowerCase());
-  if (idx === -1) return;
-  list[idx] = { ...list[idx], password: newPassword };
-  try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list)); } catch { /* ignore */ }
-  await fetch(APP_STATE_API, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ key: ACCOUNTS_KEY, value: list }),
-  }).catch(() => {/* ignore */});
-}
+const AUTH_API = (func2url as Record<string, string>)["auth"];
 
 function isValidEmail(email: string): boolean {
   return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
@@ -166,8 +119,9 @@ export default function AuthScreen({ onLogin }: Props) {
   const [forgotEmail, setForgotEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [forgotOtp, setForgotOtp] = useState(["", "", "", ""]);
-  // Служебный вход администратора — по номеру телефона
+  // Служебный вход администратора — по номеру телефона и паролю
   const [adminPhone, setAdminPhone] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const otpRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)];
   const forgotOtpRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)];
 
@@ -194,9 +148,23 @@ export default function AuthScreen({ onLogin }: Props) {
     setAdminPhone(trimmed.slice(0, 11));
   };
 
-  const handleAdminLogin = () => {
-    if (adminPhone !== ADMIN_PHONE_DIGITS) return;
-    onLogin({ phone: adminPhone, email: "", name: "Администратор", role: "admin" });
+  const handleAdminLogin = async () => {
+    if (!adminPhone || !adminPassword) return;
+    setAuthError("");
+    setLoading(true);
+    try {
+      const res = await fetch(AUTH_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "adminLogin", phone: adminPhone, password: adminPassword }),
+      });
+      const data = await res.json();
+      setLoading(false);
+      if (!res.ok || data.error) { setAuthError(data.error || "Неверный телефон или пароль"); return; }
+      onLogin({ id: data.user.id, token: data.token, phone: data.user.phone, email: data.user.email, name: data.user.name, roles: data.user.roles, login: data.user.login, location: data.user.location, bio: data.user.bio, refCode: data.user.refCode });
+    } catch {
+      setLoading(false);
+      setAuthError("Не удалось выполнить вход. Проверьте соединение.");
+    }
   };
 
   // Отправка 4-значного кода на почту
@@ -278,11 +246,14 @@ export default function AuthScreen({ onLogin }: Props) {
     setLoading(true);
     setAuthError("");
     try {
-      const existing = await findAccount(regLogin);
-      if (existing) { setAuthError("Такой логин уже занят"); setLoading(false); return; }
-      await saveAccount({ email: email.trim().toLowerCase(), name: regName.trim(), login: regLogin.trim(), password: regPassword });
+      const res = await fetch(AUTH_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "register", login: regLogin.trim(), password: regPassword, name: regName.trim(), email: email.trim().toLowerCase() }),
+      });
+      const data = await res.json();
       setLoading(false);
-      onLogin({ email: email.trim().toLowerCase(), name: regName.trim(), role: "user" });
+      if (!res.ok || data.error) { setAuthError(data.error || "Не удалось создать аккаунт"); return; }
+      onLogin({ id: data.user.id, token: data.token, email: data.user.email, name: data.user.name, roles: data.user.roles, login: data.user.login, location: data.user.location, bio: data.user.bio, refCode: data.user.refCode });
     } catch {
       setLoading(false);
       setAuthError("Не удалось создать аккаунт. Проверьте соединение и попробуйте снова.");
@@ -294,11 +265,14 @@ export default function AuthScreen({ onLogin }: Props) {
     setAuthError("");
     setLoading(true);
     try {
-      const acc = await findAccount(loginId);
-      if (!acc) { setAuthError("Аккаунт не найден. Зарегистрируйтесь."); setLoading(false); return; }
-      if (acc.password !== loginPassword) { setAuthError("Неверный пароль"); setLoading(false); return; }
+      const res = await fetch(AUTH_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "login", login: loginId.trim(), password: loginPassword }),
+      });
+      const data = await res.json();
       setLoading(false);
-      onLogin({ email: acc.email, name: acc.name, role: "user" });
+      if (!res.ok || data.error) { setAuthError(data.error || "Неверный логин или пароль"); return; }
+      onLogin({ id: data.user.id, token: data.token, email: data.user.email, name: data.user.name, roles: data.user.roles, login: data.user.login, location: data.user.location, bio: data.user.bio, refCode: data.user.refCode });
     } catch {
       setLoading(false);
       setAuthError("Не удалось выполнить вход. Проверьте соединение и попробуйте снова.");
@@ -311,8 +285,6 @@ export default function AuthScreen({ onLogin }: Props) {
     setAuthError("");
     setLoading(true);
     try {
-      const acc = await findAccount(forgotEmail);
-      if (!acc) { setAuthError("Аккаунт с таким email не найден"); setLoading(false); return; }
       const res = await fetch(EMAIL_AUTH_API, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -374,16 +346,20 @@ export default function AuthScreen({ onLogin }: Props) {
     }
   };
 
-  // Восстановление пароля: шаг 3 — сохранение нового пароля
+  // Восстановление пароля: шаг 3 — сохранение нового пароля (email уже подтверждён кодом на предыдущем шаге)
   const handleResetPassword = async () => {
     if (newPassword.length < 4) return;
     setLoading(true);
     setAuthError("");
     try {
-      await updateAccountPassword(forgotEmail, newPassword);
+      const res = await fetch(AUTH_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resetPassword", email: forgotEmail.trim().toLowerCase(), newPassword, otpVerified: true }),
+      });
+      const data = await res.json();
       setLoading(false);
-      const acc = await findAccount(forgotEmail);
-      onLogin({ email: forgotEmail.trim().toLowerCase(), name: acc?.name || "", role: "user" });
+      if (!res.ok || data.error) { setAuthError(data.error || "Не удалось сохранить новый пароль"); return; }
+      onLogin({ id: data.user.id, token: data.token, email: data.user.email, name: data.user.name, roles: data.user.roles, login: data.user.login, location: data.user.location, bio: data.user.bio, refCode: data.user.refCode });
     } catch {
       setLoading(false);
       setAuthError("Не удалось сохранить новый пароль. Попробуйте снова.");
@@ -527,7 +503,7 @@ export default function AuthScreen({ onLogin }: Props) {
                   <Icon name="ShieldCheck" size={20} color="#ef4444" />
                   <h2 className="text-xl font-bold text-white">Вход администратора</h2>
                 </div>
-                <p className="text-white/50 text-sm">Введите служебный номер для входа без кода</p>
+                <p className="text-white/50 text-sm">Введите служебный номер и пароль</p>
               </div>
               <div>
                 <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Номер администратора</label>
@@ -541,13 +517,25 @@ export default function AuthScreen({ onLogin }: Props) {
                   autoFocus
                 />
               </div>
+              <div>
+                <label className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2 block">Пароль</label>
+                <input
+                  className="input-field"
+                  type="password"
+                  placeholder="••••••"
+                  value={adminPassword}
+                  onChange={e => { setAdminPassword(e.target.value); setAuthError(""); }}
+                  onKeyDown={e => e.key === "Enter" && handleAdminLogin()}
+                />
+              </div>
+              {authError && <p className="text-xs text-red-400">{authError}</p>}
               <button
                 className="btn-primary flex items-center justify-center gap-2"
                 onClick={handleAdminLogin}
-                disabled={adminPhone !== ADMIN_PHONE_DIGITS}
-                style={{ background: adminPhone === ADMIN_PHONE_DIGITS ? 'linear-gradient(135deg, #ef4444, #b91c1c)' : undefined }}
+                disabled={!adminPhone || !adminPassword || loading}
+                style={{ background: adminPhone && adminPassword ? 'linear-gradient(135deg, #ef4444, #b91c1c)' : undefined }}
               >
-                <Icon name="LogIn" size={18} />Войти как админ
+                {loading ? <><Icon name="Loader2" size={18} className="animate-spin" />Проверяем...</> : <><Icon name="LogIn" size={18} />Войти как админ</>}
               </button>
             </div>
           )}

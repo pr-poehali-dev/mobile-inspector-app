@@ -1,14 +1,27 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
 import { useSharedState } from "@/hooks/useSharedState";
 import SchoolsModule from "./SchoolsModule";
-import type { PublishedCourse } from "./SchoolsModule";
+import func2url from "../../../backend/func2url.json";
+
+const COURSES_API = (func2url as Record<string, string>)["courses"];
 
 interface Props { onBack: () => void; }
 
-interface Enrollment { id: number; courseId: number; courseTitle: string; fio: string; phone: string; date: string; }
+interface Enrollment {
+  id: number; courseId: number; courseTitle: string; fio: string; phone: string; date: string;
+  userId?: number; ownerId?: number; status?: "pending" | "approved" | "rejected"; rejectReason?: string; approvedAt?: string;
+}
+
+interface BackendCourseLesson { id: number; title: string; type: string; content: string; lectureType?: "pdf" | "text"; files: string[]; videoUrl?: string }
+interface BackendCourse {
+  id: number; ownerId: number; schoolName: string; title: string; description: string;
+  price: number; published: boolean; certName: string; certHow: string;
+  modules: { id: number; title: string; lessons: BackendCourseLesson[] }[];
+  maxStudents: number | null; enrolledCount: number; createdAt: string;
+}
 
 const COURSES = [
   { id: 1, title: "Охрана труда и техника безопасности", lessons: 8, duration: "3 ч 20 мин", progress: 75, category: "Обязательный", cert: false, image: "https://images.unsplash.com/photo-1581094794329-c8112a89af12?w=400", hours: "40 ч", audience: "Специалисты ОТ", description: "Базовый курс по охране труда и технике безопасности на производстве.", school: "Учебный центр «Безопасность»" },
@@ -46,40 +59,55 @@ export default function LearningModule({ onBack }: Props) {
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [enrollFio, setEnrollFio] = useState("");
   const [enrollPhone, setEnrollPhone] = useState("");
-  const [allEnrollments, setAllEnrollments] = useSharedState<Enrollment[]>("school_enrollments_all", []);
+  const [myEnrollments, setMyEnrollments] = useState<Enrollment[]>([]);
+  const [publishedCourses, setPublishedCourses] = useState<BackendCourse[]>([]);
+  const [enrolling, setEnrolling] = useState(false);
 
-  // Мои заявки (по userId или по fio — для обратной совместимости со старыми записями без userId)
-  const myEnrollments = allEnrollments.filter(e => e.userId === currentUser.id);
-  // Одобренные курсы — IDs курсов, на которые ученик получил доступ
+  const loadMyEnrollments = useCallback(async () => {
+    try {
+      const res = await fetch(`${COURSES_API}?action=myEnrollments&userId=${currentUser.id}`);
+      const data = await res.json();
+      const list: Enrollment[] = Array.isArray(data.enrollments) ? data.enrollments : [];
+      setMyEnrollments(list.map(e => ({ ...e, courseId: e.courseId + 100000 })));
+    } catch { /* ignore */ }
+  }, [currentUser.id]);
+
+  const loadPublishedCourses = useCallback(async () => {
+    try {
+      const res = await fetch(`${COURSES_API}?action=published`);
+      const data = await res.json();
+      setPublishedCourses(Array.isArray(data.courses) ? data.courses : []);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { loadMyEnrollments(); loadPublishedCourses(); }, [loadMyEnrollments, loadPublishedCourses]);
+
   const approvedCourseIds = new Set(myEnrollments.filter(e => e.status === "approved").map(e => e.courseId));
-  const [publishedCourses] = useSharedState<PublishedCourse[]>("published_courses_all", []);
-  // Для просмотра уроков курса из конструктора — храним ownerId выбранного курса
-  const [selectedCourseOwnerId, setSelectedCourseOwnerId] = useState<number | null>(null);
-  // Читаем уроки конструктора владельца (по ownerId)
-  const [ownerConstructorCourses] = useSharedState<{ id: number; modules: { id: number; title: string; lessons: { id: number; title: string; type: string; content: string; lectureType?: "pdf" | "text"; files: string[]; videoUrl?: string }[] }[] }[]>(
-    selectedCourseOwnerId ? `school_courses_${selectedCourseOwnerId}` : "__none__",
-    []
-  );
+  const [, setSelectedCourseOwnerId] = useState<number | null>(null);
+  const ownerConstructorCourses = publishedCourses.map(p => ({ id: p.id, modules: p.modules }));
 
   // Объединяем статические курсы + опубликованные курсы школ
   const allCourses = [
     ...COURSES,
-    ...publishedCourses.map(p => ({
-      id: p.id + 100000,   // смещаем ID чтобы не конфликтовал со статическими
-      title: p.title,
-      lessons: p.lessonsCount,
-      duration: `${p.lessonsCount} уроков`,
-      progress: 0,
-      category: p.paid ? "Платный" : "Бесплатный",
-      cert: p.cert,
-      image: "",
-      hours: `${p.lessonsCount} уроков`,
-      audience: "",
-      description: p.description,
-      school: p.schoolName,
-      price: p.price,
-      paid: p.paid,
-    })),
+    ...publishedCourses.map(p => {
+      const lessonsCount = p.modules.reduce((s, m) => s + m.lessons.length, 0);
+      return {
+        id: p.id + 100000,
+        title: p.title,
+        lessons: lessonsCount,
+        duration: `${lessonsCount} уроков`,
+        progress: 0,
+        category: p.price > 0 ? "Платный" : "Бесплатный",
+        cert: !!p.certName,
+        image: "",
+        hours: `${lessonsCount} уроков`,
+        audience: "",
+        description: p.description,
+        school: p.schoolName,
+        price: p.price,
+        paid: p.price > 0,
+      };
+    }),
   ];
 
   // Кабинет школы — открываем SchoolsModule сразу на странице кабинета
@@ -703,24 +731,26 @@ export default function LearningModule({ onBack }: Props) {
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setEnrollOpen(false)} className="btn-ghost flex-1 text-sm">Отмена</button>
-                <button onClick={() => {
-                  if (enrollFio.trim() && enrollPhone.replace(/\D/g, "").length >= 10) {
-                    const pub = publishedCourses.find(p => p.id + 100000 === selectedCourse.id);
-                    setAllEnrollments(prev => [{
-                      id: Date.now(),
-                      courseId: selectedCourse.id,
-                      courseTitle: selectedCourse.title,
-                      fio: enrollFio,
-                      phone: enrollPhone,
-                      date: new Date().toLocaleDateString("ru-RU"),
-                      userId: currentUser.id,
-                      ownerId: pub?.ownerId,
-                      status: "pending",
-                    }, ...prev]);
+                <button onClick={async () => {
+                  if (!enrollFio.trim() || enrollPhone.replace(/\D/g, "").length < 10 || enrolling) return;
+                  const realCourseId = selectedCourse.id - 100000;
+                  setEnrolling(true);
+                  try {
+                    const res = await fetch(COURSES_API, {
+                      method: "POST", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "enroll", courseId: realCourseId, userId: currentUser.id, fio: enrollFio, phone: enrollPhone }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok || data.error) throw new Error(data.error || "Ошибка записи");
+                    await loadMyEnrollments();
                     setEnrollOpen(false);
                     showToast("✅ Заявка отправлена — ожидайте одобрения");
+                  } catch (e) {
+                    showToast(e instanceof Error && e.message ? `⚠️ ${e.message}` : "⚠️ Не удалось отправить заявку");
+                  } finally {
+                    setEnrolling(false);
                   }
-                }} disabled={!enrollFio.trim() || enrollPhone.replace(/\D/g, "").length < 10} className="btn-primary flex-1 text-sm flex items-center justify-center gap-2 disabled:opacity-40"><Icon name="Check" size={15} />Записаться</button>
+                }} disabled={!enrollFio.trim() || enrollPhone.replace(/\D/g, "").length < 10 || enrolling} className="btn-primary flex-1 text-sm flex items-center justify-center gap-2 disabled:opacity-40">{enrolling ? <><Icon name="Loader2" size={15} className="animate-spin" />Отправляем...</> : <><Icon name="Check" size={15} />Записаться</>}</button>
               </div>
             </div>
           </div>

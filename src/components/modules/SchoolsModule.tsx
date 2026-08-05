@@ -1,9 +1,13 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
 import { useSharedState } from "@/hooks/useSharedState";
 import SchoolAdmin from "./learning/SchoolAdmin";
+import func2url from "../../../backend/func2url.json";
+
+const COURSES_API = (func2url as Record<string, string>)["courses"];
+const REFERRALS_API = (func2url as Record<string, string>)["referrals"];
 
 // Типы из SchoolAdmin (дублируем минимум для чтения)
 interface ConstructorCourse {
@@ -34,7 +38,6 @@ export interface PublishedCourse {
 
 // ── Структура данных школы (готова к переносу на сервер) ──
 interface SchoolCourse { id: number; title: string; hours: string; audience: string; description?: string; }
-interface Enrollment { id: number; courseId: number; courseTitle: string; fio: string; phone: string; date: string; ownerId?: number; schoolName?: string; }
 interface School {
   id: number;
   ownerId: number;
@@ -59,7 +62,6 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
   const { currentUser, hasRole, isAdmin, addRoleRequest, roleRequests } = useApp();
 
   const [schools, setSchools] = useSharedState<School[]>("schools_list", []);
-  const [, setAllEnrollments] = useSharedState<Enrollment[]>("school_enrollments_all", []);
   const [view, setView] = useState<ViewMode>(initialView || "list");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -68,57 +70,100 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
   const [requestAgreed, setRequestAgreed] = useState(false);
   const [refCode, setRefCode] = useState("");
   const [refCodeStatus, setRefCodeStatus] = useState<"idle" | "valid" | "invalid">("idle");
-  const [refCodes] = useSharedState<{ code: string; active: boolean }[]>("referral_codes", [
-    { code: "PARTNER10", active: true },
-    { code: "PROMO2026", active: true },
-  ]);
-  const checkRefCode = (code: string) => {
+  const checkRefCode = useCallback((code: string) => {
     const trimmed = code.trim().toUpperCase();
     if (!trimmed) { setRefCodeStatus("idle"); return; }
-    setRefCodeStatus(refCodes.find(r => r.code === trimmed && r.active) ? "valid" : "invalid");
-  };
+    fetch(REFERRALS_API, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "check", code: trimmed }),
+    }).then(r => r.json()).then(data => setRefCodeStatus(data.valid ? "valid" : "invalid")).catch(() => setRefCodeStatus("invalid"));
+  }, []);
   const [editingCourse, setEditingCourse] = useState<SchoolCourse | null>(null);
   const bannerRef = useRef<HTMLInputElement>(null);
   // Запись на курс школы (с витрины)
   const [enrollCourse, setEnrollCourse] = useState<SchoolCourse | null>(null);
   const [enrollFio, setEnrollFio] = useState("");
   const [enrollPhone, setEnrollPhone] = useState("");
+  const [enrolling, setEnrolling] = useState(false);
 
-  // Курсы из конструктора SchoolAdmin (тот же ключ хранилища)
-  const [constructorCourses, setConstructorCourses] = useSharedState<ConstructorCourse[]>(`school_courses_${currentUser.id}`, []);
-  // Глобальный store опубликованных курсов (читается в LearningModule)
-  const [publishedCourses, setPublishedCourses] = useSharedState<PublishedCourse[]>("published_courses_all", []);
+  // Курсы владельца — реальный backend (тот же источник, что и SchoolAdmin)
+  const [constructorCourses, setConstructorCourses] = useState<ConstructorCourse[]>([]);
+  const [publishedCourses, setPublishedCourses] = useState<PublishedCourse[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
   const [courseDetailTab, setCourseDetailTab] = useState<"students" | "homework" | "groups" | "enroll" | "analytics" | "access">("students");
   const [pricingCourseId, setPricingCourseId] = useState<number | null>(null);
   const [priceInput, setPriceInput] = useState("");
 
-  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
+  const loadMyConstructorCourses = useCallback(async () => {
+    try {
+      const res = await fetch(`${COURSES_API}?action=my&ownerId=${currentUser.id}`);
+      const data = await res.json();
+      const list = Array.isArray(data.courses) ? data.courses : [];
+      setConstructorCourses(list.map((c: { id: number; title: string; modules: ConstructorCourse["modules"]; published: boolean; certName: string; certHow: string; price: number }) => ({
+        id: c.id, title: c.title, modules: c.modules, published: c.published,
+        documentName: c.certName, documentHow: c.certHow, certSample: "",
+        paid: c.price > 0, price: c.price,
+      })));
+    } catch { /* ignore */ }
+  }, [currentUser.id]);
 
-  // Синхронизация опубликованных курсов в глобальный store
-  const syncPublished = (courses: ConstructorCourse[]) => {
-    const schoolName = mySchool?.name || schools.find(s => s.ownerId === currentUser.id)?.name || "Моя школа";
-    setPublishedCourses(prev => {
-      // Убираем все курсы этого owner
-      const others = prev.filter(p => p.ownerId !== currentUser.id);
-      // Добавляем опубликованные
-      const mine: PublishedCourse[] = courses
-        .filter(c => c.published && c.title)
-        .map(c => ({
-          id: c.id,
-          ownerId: currentUser.id,
-          schoolName,
-          title: c.title,
-          description: `${c.modules.length} модулей · ${c.modules.reduce((s, m) => s + m.lessons.length, 0)} уроков`,
-          lessonsCount: c.modules.reduce((s, m) => s + m.lessons.length, 0),
-          modulesCount: c.modules.length,
-          paid: c.paid || false,
-          price: c.price || 0,
-          cert: !!c.documentName,
-        }));
-      return [...others, ...mine];
-    });
+  const loadPublishedCourses = useCallback(async () => {
+    try {
+      const res = await fetch(`${COURSES_API}?action=published`);
+      const data = await res.json();
+      const list = Array.isArray(data.courses) ? data.courses : [];
+      setPublishedCourses(list.map((c: { id: number; ownerId: number; schoolName: string; title: string; description: string; modules: { lessons: unknown[] }[]; price: number; certName: string }) => ({
+        id: c.id, ownerId: c.ownerId, schoolName: c.schoolName, title: c.title, description: c.description,
+        lessonsCount: c.modules.reduce((s, m) => s + m.lessons.length, 0),
+        modulesCount: c.modules.length, paid: c.price > 0, price: c.price, cert: !!c.certName,
+      })));
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { loadMyConstructorCourses(); loadPublishedCourses(); }, [loadMyConstructorCourses, loadPublishedCourses]);
+
+  const togglePublishCourse = async (courseId: number, nextPublished: boolean) => {
+    setConstructorCourses(prev => prev.map(c => c.id === courseId ? { ...c, published: nextPublished } : c));
+    try {
+      const res = await fetch(COURSES_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "publish", id: courseId, ownerId: currentUser.id, published: nextPublished }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error);
+      await loadPublishedCourses();
+    } catch {
+      setConstructorCourses(prev => prev.map(c => c.id === courseId ? { ...c, published: !nextPublished } : c));
+      showToast("⚠️ Не удалось изменить статус публикации");
+    }
   };
+
+  const updateCoursePrice = async (course: ConstructorCourse, paid: boolean, price: number) => {
+    setConstructorCourses(prev => prev.map(c => c.id === course.id ? { ...c, paid, price } : c));
+    try {
+      await fetch(COURSES_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "saveCourse", ownerId: currentUser.id, id: course.id, schoolName: mySchool?.name || currentUser.name, title: course.title, description: "", price, certName: course.documentName, certHow: course.documentHow, modules: course.modules }),
+      });
+    } catch {
+      showToast("⚠️ Не удалось сохранить цену");
+    }
+  };
+
+  const deleteConstructorCourse = async (courseId: number) => {
+    setConstructorCourses(prev => prev.filter(c => c.id !== courseId));
+    try {
+      await fetch(COURSES_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "deleteCourse", id: courseId, ownerId: currentUser.id }),
+      });
+      await loadPublishedCourses();
+    } catch {
+      showToast("⚠️ Не удалось удалить курс");
+    }
+  };
+
+  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
 
   const isSchool = isAdmin || hasRole("school");
   const myReq = roleRequests.filter(r => r.userId === currentUser.id && r.role === "school").slice(-1)[0];
@@ -181,7 +226,7 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
             <div className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: requestAgreed ? '#6366f1' : 'transparent', border: requestAgreed ? 'none' : '1px solid rgba(255,255,255,0.25)' }}>{requestAgreed && <Icon name="Check" size={12} color="white" />}</div>
             <span className="text-sm text-white/80">Я ознакомлен и согласен с правилами подачи заявки</span>
           </button>
-          <button className="btn-primary flex items-center justify-center gap-2 disabled:opacity-40" disabled={!canSubmit} onClick={() => { addRoleRequest("school", requestPhone, false); showToast("📩 Заявка отправлена администратору"); setRequestAgreed(false); setView("list"); }} style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}><Icon name="Send" size={18} />Отправить заявку</button>
+          <button className="btn-primary flex items-center justify-center gap-2 disabled:opacity-40" disabled={!canSubmit} onClick={() => { addRoleRequest("school", requestPhone, false, refCodeStatus === "valid" ? refCode.trim().toUpperCase() : undefined, 0, 0); showToast("📩 Заявка отправлена администратору"); setRequestAgreed(false); setView("list"); }} style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}><Icon name="Send" size={18} />Отправить заявку</button>
         </div>
       </div>
     );
@@ -249,9 +294,7 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
                     {/* Кнопка публикации в общий поток */}
                     <button
                       onClick={() => {
-                        const updated = constructorCourses.map(c => c.id === course.id ? { ...c, published: !c.published } : c);
-                        setConstructorCourses(updated);
-                        syncPublished(updated);
+                        togglePublishCourse(course.id, !course.published);
                         showToast(course.published ? "Курс снят с публикации" : "✅ Курс опубликован — виден в библиотеке и на витрине школы");
                       }}
                       className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all"
@@ -273,7 +316,7 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
                       <button
                         onClick={() => {
                           if (course.paid) {
-                            setConstructorCourses(prev => prev.map(c => c.id === course.id ? { ...c, paid: false, price: 0 } : c));
+                            updateCoursePrice(course, false, 0);
                             setPricingCourseId(null);
                           } else {
                             setPricingCourseId(course.id);
@@ -286,7 +329,7 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
                         <Icon name="Wallet" size={13} color={course.paid ? '#f59e0b' : 'rgba(255,255,255,0.5)'} />
                         {course.paid ? "Бесплатно" : "Платный"}
                       </button>
-                      <button onClick={() => { if (window.confirm?.("Удалить курс?")) setConstructorCourses(prev => prev.filter(c => c.id !== course.id)); }} className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444' }}>
+                      <button onClick={() => { if (window.confirm?.("Удалить курс?")) deleteConstructorCourse(course.id); }} className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444' }}>
                         <Icon name="Trash2" size={13} color="#ef4444" />Удалить
                       </button>
                     </div>
@@ -306,7 +349,7 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
                           onClick={() => {
                             const p = Number(priceInput);
                             if (p > 0) {
-                              setConstructorCourses(prev => prev.map(c => c.id === course.id ? { ...c, paid: true, price: p } : c));
+                              updateCoursePrice(course, true, p);
                               setPricingCourseId(null);
                               showToast(`Цена ${p.toLocaleString("ru-RU")} ₽ установлена`);
                             }
@@ -484,12 +527,24 @@ export default function SchoolsModule({ onBack, embedded, initialView }: Props) 
               <input className="input-field mb-4" type="tel" placeholder="+7 (___) ___-__-__" value={enrollPhone} onChange={e => setEnrollPhone(e.target.value)} />
               <div className="flex gap-2">
                 <button onClick={() => setEnrollCourse(null)} className="btn-ghost flex-1 text-sm">Отмена</button>
-                <button onClick={() => {
-                  if (enrollFio.trim() && enrollPhone.replace(/\D/g, "").length >= 10) {
-                    setAllEnrollments(prev => [{ id: Date.now(), courseId: enrollCourse.id, courseTitle: enrollCourse.title, fio: enrollFio, phone: enrollPhone, date: new Date().toLocaleDateString("ru-RU"), ownerId: selected.ownerId, schoolName: selected.name }, ...prev]);
-                    setEnrollCourse(null); showToast("✅ Вы записаны на курс!");
+                <button onClick={async () => {
+                  if (!enrollFio.trim() || enrollPhone.replace(/\D/g, "").length < 10 || enrolling) return;
+                  setEnrolling(true);
+                  try {
+                    const res = await fetch(COURSES_API, {
+                      method: "POST", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "enroll", courseId: enrollCourse.id, userId: currentUser.id, fio: enrollFio, phone: enrollPhone }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok || data.error) throw new Error(data.error || "Ошибка записи");
+                    setEnrollCourse(null);
+                    showToast("✅ Вы записаны на курс!");
+                  } catch (e) {
+                    showToast(e instanceof Error && e.message ? `⚠️ ${e.message}` : "⚠️ Не удалось отправить заявку");
+                  } finally {
+                    setEnrolling(false);
                   }
-                }} disabled={!enrollFio.trim() || enrollPhone.replace(/\D/g, "").length < 10} className="btn-primary flex-1 text-sm flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}><Icon name="Check" size={15} />Записаться</button>
+                }} disabled={!enrollFio.trim() || enrollPhone.replace(/\D/g, "").length < 10 || enrolling} className="btn-primary flex-1 text-sm flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}>{enrolling ? <><Icon name="Loader2" size={15} className="animate-spin" />Отправляем...</> : <><Icon name="Check" size={15} />Записаться</>}</button>
               </div>
             </div>
           </div>

@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import ModuleHeader from "@/components/ModuleHeader";
 import { useApp } from "@/context/AppContext";
 import { useSharedState } from "@/hooks/useSharedState";
+import func2url from "../../../../backend/func2url.json";
+
+const COURSES_API = (func2url as Record<string, string>)["courses"];
 
 // ── Типы конструктора курсов ──
 type LessonType = "lecture" | "test" | "assignment" | "webinar";
@@ -34,12 +37,17 @@ interface Module { id: number; title: string; lessons: Lesson[]; }
 
 interface Course {
   id: number;
+  ownerId?: number;
+  schoolName?: string;
   title: string;
+  description?: string;
+  price?: number;
   modules: Module[];
   published: boolean;       // опубликован ли курс
-  documentName: string;     // получаемый документ
-  documentHow: string;      // способ получения документа
-  certSample: string;       // образец сертификата (data-url)
+  documentName: string;     // получаемый документ (certName на backend)
+  documentHow: string;      // способ получения документа (certHow на backend)
+  certSample: string;       // образец сертификата (data-url, локальное поле)
+  maxStudents?: number | null;
 }
 
 interface Student {
@@ -115,17 +123,15 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
   const { users, currentUser } = useApp();
 
   const [tab, setTab] = useState<Tab>(initialTab || "constructor");
-  const [courses, setCourses] = useSharedState<Course[]>(`school_courses_${currentUser.id}`, []);
+  const [courses, setCourses] = useState<Course[]>([]);
   const [students, setStudents] = useSharedState<Student[]>(`school_students_${currentUser.id}`, []);
   const [homework, setHomework] = useSharedState<Homework[]>(`school_homework_${currentUser.id}`, []);
   const [groups, setGroups] = useSharedState<Group[]>(`school_groups_${currentUser.id}`, []);
   const [plans, setPlans] = useSharedState<Lesson_Plan[]>(`school_plans_${currentUser.id}`, []);
-  // Записи на курсы — глобальный store (заполняется учениками + управляется владельцем)
-  const [enrollments, setEnrollments] = useSharedState<Enrollment[]>("school_enrollments_all", []);
+  // Записи на курсы — реальный backend (заполняется учениками + управляется владельцем)
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
 
-  // Если передан initialCourseId — используем его, иначе первый курс
-  const resolvedCourseId = initialCourseId && courses.find(c => c.id === initialCourseId) ? initialCourseId : courses[0]?.id || 0;
-  const [activeCourseId, setActiveCourseId] = useState<number>(resolvedCourseId);
+  const [activeCourseId, setActiveCourseId] = useState<number>(initialCourseId || 0);
   const [toast, setToast] = useState<string | null>(null);
   const [studentSearch, setStudentSearch] = useState("");
   const [hwFilter, setHwFilter] = useState("");
@@ -135,31 +141,117 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
   const [calMode, setCalMode] = useState<"month" | "week" | "day">("month");
   const [newGroup, setNewGroup] = useState({ name: "", startDate: "", courseId: 0 });
   const [newPlan, setNewPlan] = useState({ groupId: 0, title: "", date: "", time: "" });
+  const [pdfUploading, setPdfUploading] = useState(false);
 
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2200); };
   const activeCourse = courses.find(c => c.id === activeCourseId) || courses[0];
-  // Записи на курсы этой школы (по ownerId владельца). Старые записи без ownerId показываем тоже.
   const myEnrollments = enrollments.filter(e => e.ownerId === undefined || e.ownerId === currentUser.id);
 
+  const loadCourses = useCallback(async () => {
+    try {
+      const res = await fetch(`${COURSES_API}?action=my&ownerId=${currentUser.id}`);
+      const data = await res.json();
+      const list = Array.isArray(data.courses) ? data.courses : [];
+      const mapped: Course[] = list.map((c: { id: number; ownerId: number; schoolName: string; title: string; description: string; price: number; published: boolean; certName: string; certHow: string; modules: Module[]; maxStudents: number | null }) => ({
+        id: c.id, ownerId: c.ownerId, schoolName: c.schoolName, title: c.title, description: c.description,
+        price: c.price, modules: c.modules, published: c.published, documentName: c.certName, documentHow: c.certHow,
+        certSample: "", maxStudents: c.maxStudents,
+      }));
+      setCourses(mapped);
+      setActiveCourseId(prev => prev || (initialCourseId && mapped.find(c => c.id === initialCourseId) ? initialCourseId : (mapped[0]?.id || 0)));
+    } catch { /* ignore */ }
+  }, [currentUser.id, initialCourseId]);
+
+  const loadEnrollments = useCallback(async () => {
+    try {
+      const res = await fetch(`${COURSES_API}?action=courseRequests&ownerId=${currentUser.id}`);
+      const data = await res.json();
+      setEnrollments(Array.isArray(data.enrollments) ? data.enrollments : []);
+    } catch { /* ignore */ }
+  }, [currentUser.id]);
+
+  useEffect(() => { loadCourses(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (tab === "enroll") loadEnrollments(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  const confirmedIds = useRef<Set<number>>(new Set());
+  const pendingCreate = useRef<Set<number>>(new Set());
+
+  const persistCourse = useCallback((course: Course) => {
+    const localId = course.id;
+    if (saveTimers.current[localId]) clearTimeout(saveTimers.current[localId]);
+    saveTimers.current[localId] = setTimeout(async () => {
+      const isNew = !confirmedIds.current.has(localId);
+      if (isNew && pendingCreate.current.has(localId)) return;
+      if (isNew) pendingCreate.current.add(localId);
+      try {
+        const body: Record<string, unknown> = {
+          action: "saveCourse", ownerId: currentUser.id,
+          schoolName: course.schoolName || currentUser.name, title: course.title, description: course.description || "",
+          price: course.price || 0, certName: course.documentName, certHow: course.documentHow, modules: course.modules,
+          maxStudents: course.maxStudents,
+        };
+        if (!isNew) body.id = localId;
+        const res = await fetch(COURSES_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error);
+        if (isNew) {
+          confirmedIds.current.add(data.id);
+          pendingCreate.current.delete(localId);
+          setCourses(prev => prev.map(c => c.id === localId ? { ...c, id: data.id } : c));
+          setActiveCourseId(prev => prev === localId ? data.id : prev);
+        }
+      } catch {
+        showToast("⚠️ Не удалось сохранить курс");
+      }
+    }, 700);
+  }, [currentUser.id, currentUser.name]);
+
   // ── Конструктор: операции ──
-  const addCourse = () => { const id = Date.now(); setCourses(prev => [...prev, { id, title: "", modules: [], published: false, documentName: "", documentHow: "", certSample: "" }]); setActiveCourseId(id); showToast("Курс создан — задайте название"); };
-  const renameCourse = (title: string) => setCourses(prev => prev.map(c => c.id === activeCourseId ? { ...c, title } : c));
-  const addModule = () => setCourses(prev => prev.map(c => c.id === activeCourseId ? { ...c, modules: [...c.modules, { id: Date.now(), title: `Новый модуль ${c.modules.length + 1}`, lessons: [] }] } : c));
-  const deleteModule = (moduleId: number) => setCourses(prev => prev.map(c => c.id !== activeCourseId ? c : { ...c, modules: c.modules.filter(m => m.id !== moduleId) }));
-  const addLesson = (moduleId: number, type: LessonType) => setCourses(prev => prev.map(c => c.id !== activeCourseId ? c : { ...c, modules: c.modules.map(m => m.id !== moduleId ? m : { ...m, lessons: [...m.lessons, newLesson(type)] }) }));
-  const deleteLesson = (moduleId: number, lessonId: number) => setCourses(prev => prev.map(c => c.id !== activeCourseId ? c : { ...c, modules: c.modules.map(m => m.id !== moduleId ? m : { ...m, lessons: m.lessons.filter(l => l.id !== lessonId) }) }));
-  const moveLesson = (moduleId: number, idx: number, dir: -1 | 1) => setCourses(prev => prev.map(c => c.id !== activeCourseId ? c : { ...c, modules: c.modules.map(m => {
-    if (m.id !== moduleId) return m;
-    const arr = [...m.lessons]; const ni = idx + dir; if (ni < 0 || ni >= arr.length) return m;
-    [arr[idx], arr[ni]] = [arr[ni], arr[idx]]; return { ...m, lessons: arr };
-  }) }));
+  const addCourse = () => {
+    const id = Date.now();
+    const created: Course = { id, title: "", modules: [], published: false, documentName: "", documentHow: "", certSample: "" };
+    setCourses(prev => [...prev, created]);
+    setActiveCourseId(id);
+    showToast("Курс создан — задайте название");
+    persistCourse(created);
+  };
+  const renameCourse = (title: string) => setCourses(prev => prev.map(c => { if (c.id !== activeCourseId) return c; const next = { ...c, title }; persistCourse(next); return next; }));
+  const addModule = () => setCourses(prev => prev.map(c => { if (c.id !== activeCourseId) return c; const next = { ...c, modules: [...c.modules, { id: Date.now(), title: `Новый модуль ${c.modules.length + 1}`, lessons: [] }] }; persistCourse(next); return next; }));
+  const deleteModule = (moduleId: number) => setCourses(prev => prev.map(c => { if (c.id !== activeCourseId) return c; const next = { ...c, modules: c.modules.filter(m => m.id !== moduleId) }; persistCourse(next); return next; }));
+  const addLesson = (moduleId: number, type: LessonType) => setCourses(prev => prev.map(c => { if (c.id !== activeCourseId) return c; const next = { ...c, modules: c.modules.map(m => m.id !== moduleId ? m : { ...m, lessons: [...m.lessons, newLesson(type)] }) }; persistCourse(next); return next; }));
+  const deleteLesson = (moduleId: number, lessonId: number) => setCourses(prev => prev.map(c => { if (c.id !== activeCourseId) return c; const next = { ...c, modules: c.modules.map(m => m.id !== moduleId ? m : { ...m, lessons: m.lessons.filter(l => l.id !== lessonId) }) }; persistCourse(next); return next; }));
+  const moveLesson = (moduleId: number, idx: number, dir: -1 | 1) => setCourses(prev => prev.map(c => {
+    if (c.id !== activeCourseId) return c;
+    const next = { ...c, modules: c.modules.map(m => {
+      if (m.id !== moduleId) return m;
+      const arr = [...m.lessons]; const ni = idx + dir; if (ni < 0 || ni >= arr.length) return m;
+      [arr[idx], arr[ni]] = [arr[ni], arr[idx]]; return { ...m, lessons: arr };
+    }) };
+    persistCourse(next);
+    return next;
+  }));
   const saveLesson = () => {
     if (!editingLesson) return;
-    setCourses(prev => prev.map(c => c.id !== activeCourseId ? c : { ...c, modules: c.modules.map(m => m.id !== editingLesson.moduleId ? m : { ...m, lessons: m.lessons.map(l => l.id === editingLesson.lesson.id ? editingLesson.lesson : l) }) }));
+    setCourses(prev => prev.map(c => {
+      if (c.id !== activeCourseId) return c;
+      const next = { ...c, modules: c.modules.map(m => m.id !== editingLesson.moduleId ? m : { ...m, lessons: m.lessons.map(l => l.id === editingLesson.lesson.id ? editingLesson.lesson : l) }) };
+      persistCourse(next);
+      return next;
+    }));
     setEditingLesson(null); showToast("Урок сохранён");
   };
-  const updateCourse = (patch: Partial<Course>) => setCourses(prev => prev.map(c => c.id === activeCourseId ? { ...c, ...patch } : c));
-  const togglePublish = () => { updateCourse({ published: !activeCourse.published }); showToast(activeCourse.published ? "Курс снят с публикации" : "✅ Курс опубликован — виден ученикам"); };
+  const updateCourse = (patch: Partial<Course>) => setCourses(prev => prev.map(c => { if (c.id !== activeCourseId) return c; const next = { ...c, ...patch }; persistCourse(next); return next; }));
+  const togglePublish = async () => {
+    const nextPublished = !activeCourse.published;
+    updateCourse({ published: nextPublished });
+    showToast(nextPublished ? "✅ Курс опубликован — виден ученикам" : "Курс снят с публикации");
+    try {
+      await fetch(COURSES_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "publish", id: activeCourseId, ownerId: currentUser.id, published: nextPublished }) });
+    } catch {
+      showToast("⚠️ Не удалось изменить статус публикации");
+    }
+  };
 
   const readImage = (file: File, cb: (url: string) => void) => { const r = new FileReader(); r.onload = () => cb(r.result as string); r.readAsDataURL(file); };
 
@@ -172,9 +264,21 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
   const courseGroups = groups.filter(g => g.courseId === activeCourseId);
   const courseEnrollments = myEnrollments.filter(e => e.courseId === activeCourseId);
 
-  const addStudentFromUser = (u: typeof users[0]) => {
+  const addStudentFromUser = async (u: typeof users[0]) => {
     setStudents(prev => [...prev, { id: u.id, name: u.name, email: u.email, role: "student", progress: 0, avgScore: 0, status: "not_started", groupId: null, courseId: activeCourseId }]);
     showToast(`${u.name} записан на курс`);
+    try {
+      const res = await fetch(COURSES_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "manualEnroll", courseId: activeCourseId, ownerId: currentUser.id, userId: u.id, fio: u.name, phone: "" }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error);
+      showToast("✅ Ученик добавлен и получил доступ");
+      await loadEnrollments();
+    } catch {
+      showToast("⚠️ Не удалось выдать доступ к курсу");
+    }
   };
   const toggleCurator = (id: number) => setStudents(prev => prev.map(s => s.id === id ? { ...s, role: s.role === "curator" ? "student" : "curator" } : s));
   const assignGroup = (studentId: number, groupId: number | null) => setStudents(prev => prev.map(s => s.id === studentId ? { ...s, groupId } : s));
@@ -231,10 +335,26 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
                   if (f.type !== "application/pdf") { showToast("Поддерживается только PDF"); e.target.value = ""; return; }
                   if (f.size > 50 * 1024 * 1024) { showToast("Файл слишком большой — максимум 50 МБ"); e.target.value = ""; return; }
                   const reader = new FileReader();
-                  reader.onload = () => setL({ content: reader.result as string, files: [f.name], lectureType: "pdf" });
+                  reader.onload = async () => {
+                    setPdfUploading(true);
+                    try {
+                      const res = await fetch(COURSES_API, {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "uploadLecturePdf", pdfData: reader.result as string }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok || data.error) throw new Error(data.error || "Не удалось загрузить файл");
+                      setL({ content: data.url, files: [f.name], lectureType: "pdf" });
+                    } catch (err) {
+                      showToast(err instanceof Error ? `⚠️ ${err.message}` : "⚠️ Не удалось загрузить PDF");
+                    } finally {
+                      setPdfUploading(false);
+                    }
+                  };
                   reader.readAsDataURL(f);
                   e.target.value = "";
                 }}
+                disabled={pdfUploading}
               />
               {/* Обратная совместимость: старый текст — предлагаем миграцию */}
               {L.content && !L.content.startsWith("data:application/pdf") && L.lectureType !== "pdf" && (
@@ -260,13 +380,13 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
                   >Очистить и начать заново</button>
                 </div>
               )}
-              {L.content && L.content.startsWith("data:application/pdf") ? (
+              {L.content && (L.content.startsWith("data:application/pdf") || L.lectureType === "pdf") ? (
                 <div className="space-y-3">
                   {/* Имя файла + кнопка замены */}
                   <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
                     <Icon name="FileText" size={20} color="#ef4444" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white truncate">{L.files[0] || "lecture.pdf"}</p>
+                      {pdfUploading ? <p className="text-sm font-medium text-white/60 flex items-center gap-2"><Icon name="Loader2" size={13} className="animate-spin" />Загружаем...</p> : <p className="text-sm font-medium text-white truncate">{L.files[0] || "lecture.pdf"}</p>}
                       <p className="text-xs text-white/40">PDF · загружен</p>
                     </div>
                     <button
@@ -619,11 +739,16 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
                   {/* Кнопки управления */}
                   {status !== "approved" && (
                     <button
-                      onClick={() => {
-                        setEnrollments(prev => prev.map(e => e.id === en.id
-                          ? { ...e, status: "approved", approvedAt: new Date().toLocaleDateString("ru-RU"), rejectReason: undefined }
-                          : e));
-                        showToast(`✅ Доступ одобрен — ${en.fio}`);
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(COURSES_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "approve", enrollmentId: en.id, ownerId: currentUser.id }) });
+                          const data = await res.json();
+                          if (!res.ok || data.error) throw new Error(data.error);
+                          showToast(`✅ Доступ одобрен — ${en.fio}`);
+                          await loadEnrollments();
+                        } catch (err) {
+                          showToast(err instanceof Error ? `⚠️ ${err.message}` : "⚠️ Не удалось одобрить");
+                        }
                       }}
                       className="w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
                       style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: 'white' }}
@@ -633,9 +758,14 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
                   )}
                   {status === "approved" && (
                     <button
-                      onClick={() => {
-                        setEnrollments(prev => prev.map(e => e.id === en.id ? { ...e, status: "pending", approvedAt: undefined } : e));
-                        showToast("Доступ отозван");
+                      onClick={async () => {
+                        try {
+                          await fetch(COURSES_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "revoke", enrollmentId: en.id, ownerId: currentUser.id }) });
+                          showToast("Доступ отозван");
+                          await loadEnrollments();
+                        } catch {
+                          showToast("⚠️ Не удалось отозвать доступ");
+                        }
                       }}
                       className="w-full py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
                       style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444' }}
@@ -644,9 +774,14 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
                     </button>
                   )}
                   {status !== "rejected" && (
-                    <RejectPanel enrollId={en.id} onReject={(id, reason) => {
-                      setEnrollments(prev => prev.map(e => e.id === id ? { ...e, status: "rejected", rejectReason: reason, approvedAt: undefined } : e));
-                      showToast("Заявка отклонена");
+                    <RejectPanel enrollId={en.id} onReject={async (id, reason) => {
+                      try {
+                        await fetch(COURSES_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reject", enrollmentId: id, ownerId: currentUser.id, reason }) });
+                        showToast("Заявка отклонена");
+                        await loadEnrollments();
+                      } catch {
+                        showToast("⚠️ Не удалось отклонить заявку");
+                      }
                     }} />
                   )}
                 </div>
