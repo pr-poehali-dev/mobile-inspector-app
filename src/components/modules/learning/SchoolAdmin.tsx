@@ -122,7 +122,9 @@ interface Props { onBack: () => void; initialTab?: Tab; initialCourseId?: number
 export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Props) {
   const { users, currentUser } = useApp();
 
-  const [tab, setTab] = useState<Tab>(initialTab || "constructor");
+  // "enroll" — устаревшее значение вкладки (для совместимости с внешними вызовами), ведёт на объединённую "students"
+  const [tab, setTab] = useState<Tab>(initialTab === "enroll" ? "students" : (initialTab || "constructor"));
+  const [studentsFilter, setStudentsFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [courses, setCourses] = useState<Course[]>([]);
   const [students, setStudents] = useSharedState<Student[]>(`school_students_${currentUser.id}`, []);
   const [homework, setHomework] = useSharedState<Homework[]>(`school_homework_${currentUser.id}`, []);
@@ -171,7 +173,8 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
   }, [currentUser.id]);
 
   useEffect(() => { loadCourses(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (tab === "enroll") loadEnrollments(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Заявки нужны и на вкладке "Ученики" (список + фильтры), и просто для бейджа-счётчика — грузим сразу при открытии школы
+  useEffect(() => { loadEnrollments(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const confirmedIds = useRef<Set<number>>(new Set());
@@ -208,18 +211,31 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
   }, [currentUser.id, currentUser.name]);
 
   // ── Конструктор: операции ──
+  // Курс → Уроки (2 уровня). "Модуль" — необязательный визуальный раздел, а не отдельная сущность в БД:
+  // по умолчанию все уроки лежат в одном скрытом модуле без названия и отображаются плоским списком.
   const addCourse = () => {
     const id = Date.now();
-    const created: Course = { id, title: "", modules: [], published: false, documentName: "", documentHow: "", certSample: "" };
+    const created: Course = { id, title: "", modules: [{ id: id + 1, title: "", lessons: [] }], published: false, documentName: "", documentHow: "", certSample: "" };
     setCourses(prev => [...prev, created]);
     setActiveCourseId(id);
     showToast("Курс создан — задайте название");
     persistCourse(created);
   };
   const renameCourse = (title: string) => setCourses(prev => prev.map(c => { if (c.id !== activeCourseId) return c; const next = { ...c, title }; persistCourse(next); return next; }));
-  const addModule = () => setCourses(prev => prev.map(c => { if (c.id !== activeCourseId) return c; const next = { ...c, modules: [...c.modules, { id: Date.now(), title: `Новый модуль ${c.modules.length + 1}`, lessons: [] }] }; persistCourse(next); return next; }));
+  // "Добавить раздел" — опциональная визуальная группировка уроков (заголовок), не обязательная сущность
+  const addModule = () => setCourses(prev => prev.map(c => { if (c.id !== activeCourseId) return c; const next = { ...c, modules: [...c.modules, { id: Date.now(), title: `Новый раздел`, lessons: [] }] }; persistCourse(next); return next; }));
   const deleteModule = (moduleId: number) => setCourses(prev => prev.map(c => { if (c.id !== activeCourseId) return c; const next = { ...c, modules: c.modules.filter(m => m.id !== moduleId) }; persistCourse(next); return next; }));
   const addLesson = (moduleId: number, type: LessonType) => setCourses(prev => prev.map(c => { if (c.id !== activeCourseId) return c; const next = { ...c, modules: c.modules.map(m => m.id !== moduleId ? m : { ...m, lessons: [...m.lessons, newLesson(type)] }) }; persistCourse(next); return next; }));
+  // Добавить урок сразу в курс без выбора раздела — попадает в первый (скрытый по умолчанию) модуль
+  const addLessonToDefault = (type: LessonType) => setCourses(prev => prev.map(c => {
+    if (c.id !== activeCourseId) return c;
+    let modules = c.modules;
+    if (modules.length === 0) modules = [{ id: Date.now(), title: "", lessons: [] }];
+    const targetId = modules[0].id;
+    const next = { ...c, modules: modules.map(m => m.id !== targetId ? m : { ...m, lessons: [...m.lessons, newLesson(type)] }) };
+    persistCourse(next);
+    return next;
+  }));
   const deleteLesson = (moduleId: number, lessonId: number) => setCourses(prev => prev.map(c => { if (c.id !== activeCourseId) return c; const next = { ...c, modules: c.modules.map(m => m.id !== moduleId ? m : { ...m, lessons: m.lessons.filter(l => l.id !== lessonId) }) }; persistCourse(next); return next; }));
   const moveLesson = (moduleId: number, idx: number, dir: -1 | 1) => setCourses(prev => prev.map(c => {
     if (c.id !== activeCourseId) return c;
@@ -288,12 +304,12 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
   const filteredHw = courseHomework.filter(h => h.studentName.toLowerCase().includes(hwFilter.toLowerCase()) || h.courseTitle.toLowerCase().includes(hwFilter.toLowerCase()));
   const groupAvg = courseStudents.length ? (courseStudents.reduce((s, x) => s + x.avgScore, 0) / courseStudents.length).toFixed(1) : "0";
 
+  // "Ученики" и "Записи" объединены в одну вкладку с фильтрами (см. п.2.4) — badge считает новые заявки
   const TABS = [
     { k: "constructor", label: "Конструктор", icon: "LayoutGrid" },
-    { k: "students", label: "Ученики", icon: "Users" },
+    { k: "students", label: "Ученики", icon: "Users", badge: courseEnrollments.filter(e => !e.status || e.status === "pending").length },
     { k: "homework", label: "Проверка ДЗ", icon: "ClipboardCheck", badge: courseHomework.filter(h => h.status === "pending").length },
     { k: "groups", label: "Группы", icon: "CalendarDays" },
-    { k: "enroll", label: "Записи", icon: "UserPlus", badge: courseEnrollments.filter(e => !e.status || e.status === "pending").length },
     { k: "analytics", label: "Аналитика", icon: "BarChart3" },
     { k: "settings", label: "Доступ", icon: "Settings" },
   ] as const;
@@ -572,12 +588,37 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
               </div>
             </div>
 
-            <p className="text-xs text-white/30 px-1">Каждый урок имеет свою форму ввода по типу.</p>
-            {activeCourse.modules.map(m => (
+            <p className="text-xs text-white/30 px-1">Курс → Уроки. Разделы нужны, только если хотите сгруппировать уроки — можно обойтись и без них.</p>
+
+            {/* Плоский список уроков — простой режим без разделов (первый модуль без названия) */}
+            {activeCourse.modules.length <= 1 && (
+              <div className="glass rounded-2xl p-4">
+                <div className="space-y-2 mb-3">
+                  {(activeCourse.modules[0]?.lessons || []).map((l, idx) => {
+                    const lm = LESSON_TYPES[l.type];
+                    const moduleId = activeCourse.modules[0].id;
+                    return (
+                      <div key={l.id} className="flex items-center gap-2 p-2.5 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                        <div className="flex flex-col"><button onClick={() => moveLesson(moduleId, idx, -1)} className="hover:text-white text-white/30"><Icon name="ChevronUp" size={13} /></button><button onClick={() => moveLesson(moduleId, idx, 1)} className="hover:text-white text-white/30"><Icon name="ChevronDown" size={13} /></button></div>
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${lm.color}18` }}><Icon name={lm.icon} size={14} color={lm.color} /></div>
+                        <div className="flex-1 min-w-0"><p className="text-sm text-white truncate">{l.title}</p><p className="text-xs" style={{ color: lm.color }}>{lm.label}</p></div>
+                        <button onClick={() => setEditingLesson({ moduleId, lesson: l })} className="p-1.5 rounded-lg hover:bg-white/10"><Icon name="Pencil" size={13} color="rgba(255,255,255,0.6)" /></button>
+                        <button onClick={() => deleteLesson(moduleId, l.id)} className="p-1.5 rounded-lg hover:bg-white/10"><Icon name="Trash2" size={13} color="rgba(239,68,68,0.7)" /></button>
+                      </div>
+                    );
+                  })}
+                  {(activeCourse.modules[0]?.lessons || []).length === 0 && <p className="text-xs text-white/30 text-center py-2">Нет уроков — добавьте первый ниже</p>}
+                </div>
+                <div className="flex flex-wrap gap-2">{(Object.keys(LESSON_TYPES) as LessonType[]).map(t => <button key={t} onClick={() => addLessonToDefault(t)} className="text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1" style={{ background: `${LESSON_TYPES[t].color}15`, color: LESSON_TYPES[t].color }}><Icon name="Plus" size={11} color={LESSON_TYPES[t].color} />{LESSON_TYPES[t].label}</button>)}</div>
+              </div>
+            )}
+
+            {/* Расширенный режим — есть разделы (модули), у каждого свой заголовок */}
+            {activeCourse.modules.length > 1 && activeCourse.modules.map(m => (
               <div key={m.id} className="glass rounded-2xl p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <Icon name="Folder" size={16} color="#3b82f6" />
-                  <input className="bg-transparent text-sm font-semibold text-white flex-1 outline-none border-b border-transparent focus:border-white/20" value={m.title} onChange={e => setCourses(prev => prev.map(c => c.id !== activeCourseId ? c : { ...c, modules: c.modules.map(x => x.id === m.id ? { ...x, title: e.target.value } : x) }))} />
+                  <input className="bg-transparent text-sm font-semibold text-white flex-1 outline-none border-b border-transparent focus:border-white/20" placeholder="Название раздела" value={m.title} onChange={e => setCourses(prev => prev.map(c => c.id !== activeCourseId ? c : { ...c, modules: c.modules.map(x => x.id === m.id ? { ...x, title: e.target.value } : x) }))} />
                   <button onClick={() => deleteModule(m.id)} className="p-1.5 rounded-lg hover:bg-white/10"><Icon name="Trash2" size={14} color="rgba(239,68,68,0.7)" /></button>
                 </div>
                 <div className="space-y-2 mb-3">
@@ -599,7 +640,7 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
               </div>
             ))}
             <div className="flex gap-2">
-              <button onClick={addModule} className="btn-ghost flex-1 flex items-center justify-center gap-2"><Icon name="FolderPlus" size={16} />Добавить модуль</button>
+              <button onClick={addModule} className="btn-ghost flex-1 flex items-center justify-center gap-2"><Icon name="FolderPlus" size={16} />Добавить раздел (опционально)</button>
               <button
                 onClick={() => { setCourses(prev => [...prev]); showToast("✅ Изменения сохранены"); }}
                 className="flex-1 py-3 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 text-white"
@@ -611,50 +652,158 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
           </div>
         )}
 
-        {/* ── УЧЕНИКИ (поиск по зарегистрированным + добавление) ── */}
-        {tab === "students" && (
+        {/* ── УЧЕНИКИ (объединяет бывшие вкладки «Ученики» и «Записи», см. п.2.4) ── */}
+        {tab === "students" && (() => {
+          const pendingCount = courseEnrollments.filter(e => !e.status || e.status === "pending").length;
+          const approvedCount = courseEnrollments.filter(e => e.status === "approved").length;
+          const rejectedCount = courseEnrollments.filter(e => e.status === "rejected").length;
+          const filteredEnrollments = studentsFilter === "all" ? [] : courseEnrollments.filter(e => (e.status || "pending") === studentsFilter);
+          return (
           <div className="space-y-3">
-            <div className="glass rounded-2xl p-4">
-              <p className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-2">Найти зарегистрированного пользователя</p>
-              <div className="relative mb-2"><Icon name="Search" size={15} color="rgba(255,255,255,0.3)" className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" /><input className="input-field pl-9 py-2.5 text-sm" placeholder="Имя или email..." value={studentSearch} onChange={e => setStudentSearch(e.target.value)} /></div>
-              {studentSearch && (
-                <div className="space-y-1">
-                  {candidates.slice(0, 6).map(u => (
-                    <div key={u.id} className="flex items-center gap-2 p-2 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }}>
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg,#3b82f6,#7c3aed)' }}>{u.name[0]}</div>
-                      <div className="flex-1 min-w-0"><p className="text-sm text-white truncate">{u.name}</p><p className="text-xs text-white/40">{u.email}</p></div>
-                      <button onClick={() => addStudentFromUser(u)} className="text-xs px-2.5 py-1 rounded-lg" style={{ background: 'rgba(59,130,246,0.2)', color: '#60a5fa' }}>Добавить в группу</button>
-                    </div>
-                  ))}
-                  {candidates.length === 0 && <p className="text-xs text-white/30 text-center py-2">Не найдено</p>}
-                </div>
-              )}
+            {/* Фильтры */}
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {[
+                { k: "all" as const, label: "Все ученики", count: courseStudents.length },
+                { k: "pending" as const, label: "Новые заявки", count: pendingCount },
+                { k: "approved" as const, label: "Активные", count: approvedCount },
+                { k: "rejected" as const, label: "Отклонённые", count: rejectedCount },
+              ].map(f => (
+                <button key={f.k} onClick={() => setStudentsFilter(f.k)} className="relative flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5" style={{ background: studentsFilter === f.k ? 'rgba(59,130,246,0.25)' : 'rgba(255,255,255,0.06)', border: `1px solid ${studentsFilter === f.k ? 'rgba(59,130,246,0.5)' : 'rgba(255,255,255,0.1)'}`, color: studentsFilter === f.k ? '#60a5fa' : 'rgba(255,255,255,0.5)' }}>
+                  {f.label}
+                  {f.count > 0 && <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ background: f.k === "pending" ? '#f59e0b' : 'rgba(255,255,255,0.15)' }}>{f.count}</span>}
+                </button>
+              ))}
             </div>
-            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider px-1">Ученики курса «{activeCourse?.title || "—"}» ({courseStudents.length})</p>
-            {courseStudents.map(s => {
-              const st = STATUS_META[s.status];
-              const grp = courseGroups.find(g => g.id === s.groupId);
-              return (
-                <div key={s.id} className="glass rounded-2xl p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-sm font-bold text-white" style={{ background: s.role === "curator" ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'linear-gradient(135deg,#3b82f6,#7c3aed)' }}>{s.name[0].toUpperCase()}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2"><p className="text-sm font-semibold text-white">{s.name}</p>{s.role === "curator" && <span className="text-xs px-1.5 py-0.5 rounded-md" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>Куратор</span>}</div>
-                      <p className="text-xs text-white/40">{s.email}{grp ? ` · ${grp.name}` : ""}</p>
+
+            {/* ── ВСЕ УЧЕНИКИ: поиск + добавление + список ── */}
+            {studentsFilter === "all" && (
+              <>
+                <div className="glass rounded-2xl p-4">
+                  <p className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-2">Найти зарегистрированного пользователя</p>
+                  <div className="relative mb-2"><Icon name="Search" size={15} color="rgba(255,255,255,0.3)" className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" /><input className="input-field pl-9 py-2.5 text-sm" placeholder="Имя или email..." value={studentSearch} onChange={e => setStudentSearch(e.target.value)} /></div>
+                  {studentSearch && (
+                    <div className="space-y-1">
+                      {candidates.slice(0, 6).map(u => (
+                        <div key={u.id} className="flex items-center gap-2 p-2 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg,#3b82f6,#7c3aed)' }}>{u.name[0]}</div>
+                          <div className="flex-1 min-w-0"><p className="text-sm text-white truncate">{u.name}</p><p className="text-xs text-white/40">{u.email}</p></div>
+                          <button onClick={() => addStudentFromUser(u)} className="text-xs px-2.5 py-1 rounded-lg" style={{ background: 'rgba(59,130,246,0.2)', color: '#60a5fa' }}>Записать на курс</button>
+                        </div>
+                      ))}
+                      {candidates.length === 0 && <p className="text-xs text-white/30 text-center py-2">Не найдено</p>}
                     </div>
-                    <span className="text-xs px-2 py-0.5 rounded-lg" style={{ background: `${st.color}18`, color: st.color }}>{st.label}</span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-3">
-                    <div className="flex-1"><div className="h-1.5 bg-white/10 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{ width: `${s.progress}%`, background: 'linear-gradient(90deg,#3b82f6,#8b5cf6)' }} /></div></div>
-                    <span className="text-xs text-white/50">{s.progress}%</span>
-                    {courseGroups.length > 0 && <select value={s.groupId || ""} onChange={e => assignGroup(s.id, e.target.value ? Number(e.target.value) : null)} className="text-xs rounded-lg px-2 py-1" style={{ background: 'rgba(255,255,255,0.06)', color: 'white' }}><option value="" style={{ background: '#1a1a2e' }}>Без группы</option>{courseGroups.map(g => <option key={g.id} value={g.id} style={{ background: '#1a1a2e' }}>{g.name}</option>)}</select>}
-                    <button onClick={() => toggleCurator(s.id)} className="text-xs px-2.5 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)' }}>{s.role === "curator" ? "Снять" : "Куратор"}</button>
-                  </div>
+                  )}
                 </div>
-              );
-            })}
+                <p className="text-xs font-semibold text-white/40 uppercase tracking-wider px-1">Ученики курса «{activeCourse?.title || "—"}» ({courseStudents.length})</p>
+                {courseStudents.map(s => {
+                  const st = STATUS_META[s.status];
+                  const grp = courseGroups.find(g => g.id === s.groupId);
+                  return (
+                    <div key={s.id} className="glass rounded-2xl p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-sm font-bold text-white" style={{ background: s.role === "curator" ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'linear-gradient(135deg,#3b82f6,#7c3aed)' }}>{s.name[0].toUpperCase()}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2"><p className="text-sm font-semibold text-white">{s.name}</p>{s.role === "curator" && <span className="text-xs px-1.5 py-0.5 rounded-md" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>Куратор</span>}</div>
+                          <p className="text-xs text-white/40">{s.email}{grp ? ` · ${grp.name}` : ""}</p>
+                        </div>
+                        <span className="text-xs px-2 py-0.5 rounded-lg" style={{ background: `${st.color}18`, color: st.color }}>{st.label}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-3">
+                        <div className="flex-1"><div className="h-1.5 bg-white/10 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{ width: `${s.progress}%`, background: 'linear-gradient(90deg,#3b82f6,#8b5cf6)' }} /></div></div>
+                        <span className="text-xs text-white/50">{s.progress}%</span>
+                        {courseGroups.length > 0 && <select value={s.groupId || ""} onChange={e => assignGroup(s.id, e.target.value ? Number(e.target.value) : null)} className="text-xs rounded-lg px-2 py-1" style={{ background: 'rgba(255,255,255,0.06)', color: 'white' }}><option value="" style={{ background: '#1a1a2e' }}>Без группы</option>{courseGroups.map(g => <option key={g.id} value={g.id} style={{ background: '#1a1a2e' }}>{g.name}</option>)}</select>}
+                        <button onClick={() => toggleCurator(s.id)} className="text-xs px-2.5 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)' }}>{s.role === "curator" ? "Снять" : "Куратор"}</button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {courseStudents.length === 0 && <div className="text-center py-10 text-white/30 text-sm">Пока нет учеников на этом курсе</div>}
+              </>
+            )}
+
+            {/* ── ЗАЯВКИ (новые/активные/отклонённые) ── */}
+            {studentsFilter !== "all" && (
+              <>
+                {filteredEnrollments.length === 0 && <div className="text-center py-10 text-white/30 text-sm">Пусто</div>}
+                {filteredEnrollments.map(en => {
+                  const status = en.status || "pending";
+                  const statusMeta = {
+                    pending:  { label: "На рассмотрении", color: "#f59e0b", bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.3)" },
+                    approved: { label: "Одобрено",         color: "#10b981", bg: "rgba(16,185,129,0.12)", border: "rgba(16,185,129,0.3)" },
+                    rejected: { label: "Отклонено",        color: "#ef4444", bg: "rgba(239,68,68,0.08)",  border: "rgba(239,68,68,0.25)" },
+                  }[status];
+                  return (
+                    <div key={en.id} className="glass rounded-2xl p-4 space-y-3" style={{ border: `1px solid ${statusMeta.border}` }}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-white">{en.fio}</p>
+                          <p className="text-xs text-white/50 flex items-center gap-1 mt-0.5"><Icon name="Phone" size={11} />{en.phone}</p>
+                          <p className="text-xs text-white/40 mt-0.5">{en.date}</p>
+                        </div>
+                        <span className="text-xs px-2 py-0.5 rounded-lg font-medium flex-shrink-0" style={{ background: statusMeta.bg, color: statusMeta.color }}>{statusMeta.label}</span>
+                      </div>
+                      {status === "rejected" && en.rejectReason && (
+                        <p className="text-xs text-red-300/70 px-1">Причина: {en.rejectReason}</p>
+                      )}
+                      {status === "approved" && en.approvedAt && (
+                        <p className="text-xs text-green-400/60 px-1">Одобрено: {en.approvedAt}</p>
+                      )}
+                      {/* Кнопки управления */}
+                      {status !== "approved" && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(COURSES_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "approve", enrollmentId: en.id, ownerId: currentUser.id }) });
+                              const data = await res.json();
+                              if (!res.ok || data.error) throw new Error(data.error);
+                              showToast(`✅ Доступ одобрен — ${en.fio}`);
+                              await loadEnrollments();
+                            } catch (err) {
+                              showToast(err instanceof Error ? `⚠️ ${err.message}` : "⚠️ Не удалось одобрить");
+                            }
+                          }}
+                          className="w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
+                          style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: 'white' }}
+                        >
+                          <Icon name="CheckCircle" size={15} color="white" />Одобрить доступ
+                        </button>
+                      )}
+                      {status === "approved" && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              await fetch(COURSES_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "revoke", enrollmentId: en.id, ownerId: currentUser.id }) });
+                              showToast("Доступ отозван");
+                              await loadEnrollments();
+                            } catch {
+                              showToast("⚠️ Не удалось отозвать доступ");
+                            }
+                          }}
+                          className="w-full py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
+                          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444' }}
+                        >
+                          <Icon name="UserX" size={14} color="#ef4444" />Отозвать доступ
+                        </button>
+                      )}
+                      {status !== "rejected" && (
+                        <RejectPanel enrollId={en.id} onReject={async (id, reason) => {
+                          try {
+                            await fetch(COURSES_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reject", enrollmentId: id, ownerId: currentUser.id, reason }) });
+                            showToast("Заявка отклонена");
+                            await loadEnrollments();
+                          } catch {
+                            showToast("⚠️ Не удалось отклонить заявку");
+                          }
+                        }} />
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
           </div>
-        )}
+          );
+        })()}
 
         {/* ── ПРОВЕРКА ДЗ (курс + урок + атрибуты) ── */}
         {tab === "homework" && (
@@ -702,94 +851,6 @@ export default function SchoolAdmin({ onBack, initialTab, initialCourseId }: Pro
             </div>
           </div>
         )}
-
-        {/* ── ЗАПИСИ НА КУРС ── */}
-        {tab === "enroll" && (() => {
-          const pendingCount = courseEnrollments.filter(e => !e.status || e.status === "pending").length;
-          return (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 px-1">
-              <p className="text-xs text-white/40 flex-1">Заявки на курс «{activeCourse?.title || "—"}»</p>
-              {pendingCount > 0 && <span className="px-2 py-0.5 rounded-full text-xs font-bold text-white" style={{ background: '#f59e0b' }}>{pendingCount} ожидают</span>}
-            </div>
-            {courseEnrollments.length === 0 && <div className="text-center py-10 text-white/30 text-sm">Пока нет заявок на этот курс</div>}
-            {courseEnrollments.map(en => {
-              const status = en.status || "pending";
-              const statusMeta = {
-                pending:  { label: "На рассмотрении", color: "#f59e0b", bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.3)" },
-                approved: { label: "Одобрено",         color: "#10b981", bg: "rgba(16,185,129,0.12)", border: "rgba(16,185,129,0.3)" },
-                rejected: { label: "Отклонено",        color: "#ef4444", bg: "rgba(239,68,68,0.08)",  border: "rgba(239,68,68,0.25)" },
-              }[status];
-              return (
-                <div key={en.id} className="glass rounded-2xl p-4 space-y-3" style={{ border: `1px solid ${statusMeta.border}` }}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-white">{en.fio}</p>
-                      <p className="text-xs text-white/50 flex items-center gap-1 mt-0.5"><Icon name="Phone" size={11} />{en.phone}</p>
-                      <p className="text-xs text-white/40 mt-0.5">{en.date}</p>
-                    </div>
-                    <span className="text-xs px-2 py-0.5 rounded-lg font-medium flex-shrink-0" style={{ background: statusMeta.bg, color: statusMeta.color }}>{statusMeta.label}</span>
-                  </div>
-                  {status === "rejected" && en.rejectReason && (
-                    <p className="text-xs text-red-300/70 px-1">Причина: {en.rejectReason}</p>
-                  )}
-                  {status === "approved" && en.approvedAt && (
-                    <p className="text-xs text-green-400/60 px-1">Одобрено: {en.approvedAt}</p>
-                  )}
-                  {/* Кнопки управления */}
-                  {status !== "approved" && (
-                    <button
-                      onClick={async () => {
-                        try {
-                          const res = await fetch(COURSES_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "approve", enrollmentId: en.id, ownerId: currentUser.id }) });
-                          const data = await res.json();
-                          if (!res.ok || data.error) throw new Error(data.error);
-                          showToast(`✅ Доступ одобрен — ${en.fio}`);
-                          await loadEnrollments();
-                        } catch (err) {
-                          showToast(err instanceof Error ? `⚠️ ${err.message}` : "⚠️ Не удалось одобрить");
-                        }
-                      }}
-                      className="w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
-                      style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: 'white' }}
-                    >
-                      <Icon name="CheckCircle" size={15} color="white" />Одобрить доступ
-                    </button>
-                  )}
-                  {status === "approved" && (
-                    <button
-                      onClick={async () => {
-                        try {
-                          await fetch(COURSES_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "revoke", enrollmentId: en.id, ownerId: currentUser.id }) });
-                          showToast("Доступ отозван");
-                          await loadEnrollments();
-                        } catch {
-                          showToast("⚠️ Не удалось отозвать доступ");
-                        }
-                      }}
-                      className="w-full py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
-                      style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444' }}
-                    >
-                      <Icon name="UserX" size={14} color="#ef4444" />Отозвать доступ
-                    </button>
-                  )}
-                  {status !== "rejected" && (
-                    <RejectPanel enrollId={en.id} onReject={async (id, reason) => {
-                      try {
-                        await fetch(COURSES_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reject", enrollmentId: id, ownerId: currentUser.id, reason }) });
-                        showToast("Заявка отклонена");
-                        await loadEnrollments();
-                      } catch {
-                        showToast("⚠️ Не удалось отклонить заявку");
-                      }
-                    }} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          );
-        })()}
 
         {/* ── АНАЛИТИКА ── */}
         {tab === "analytics" && (
