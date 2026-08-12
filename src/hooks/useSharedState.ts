@@ -2,8 +2,13 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import func2url from "../../backend/func2url.json";
 
 const API = (func2url as Record<string, string>)["app-state"];
-const POLL_INTERVAL = 10_000;
+const POLL_INTERVAL_ACTIVE = 25_000; // опрос сервера, пока вкладка на экране
+const POLL_INTERVAL_HIDDEN = 120_000; // опрос сервера, пока вкладка свёрнута/в фоне
 const LS_VERSION = "v6";
+
+function isTabVisible(): boolean {
+  try { return document.visibilityState !== "hidden"; } catch { return true; }
+}
 
 // Сбрасываем старый кэш браузера
 (function clearOldCache() {
@@ -25,7 +30,7 @@ const memCache: Record<string, unknown> = {};
 const loadedFromServer: Record<string, boolean> = {}; // ключ загружен с сервера хотя бы раз
 const subscribers: Record<string, Set<(v: unknown) => void>> = {};
 const saveTimers: Record<string, ReturnType<typeof setTimeout>> = {};
-const pollTimers: Record<string, ReturnType<typeof setInterval>> = {};
+const pollTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 const pollCount: Record<string, number> = {};
 
 function lsGet(key: string): unknown {
@@ -63,26 +68,37 @@ function scheduleWrite(key: string, value: unknown) {
   }, 400);
 }
 
+function scheduleNextPoll(key: string) {
+  if (!pollCount[key]) return; // никто больше не подписан — останавливаем цепочку
+  const delay = isTabVisible() ? POLL_INTERVAL_ACTIVE : POLL_INTERVAL_HIDDEN;
+  pollTimers[key] = setTimeout(async () => {
+    if (!pollCount[key]) return;
+    if (isTabVisible()) {
+      const remote = await serverGet(key);
+      if (remote !== null) {
+        const curr = JSON.stringify(memCache[key]);
+        const next = JSON.stringify(remote);
+        if (curr !== next) {
+          memCache[key] = remote;
+          lsSet(key, remote);
+          broadcast(key, remote);
+        }
+      }
+    }
+    scheduleNextPoll(key);
+  }, delay);
+}
+
 function startPoll(key: string) {
   pollCount[key] = (pollCount[key] || 0) + 1;
   if (pollTimers[key]) return;
-  pollTimers[key] = setInterval(async () => {
-    const remote = await serverGet(key);
-    if (remote === null) return;
-    const curr = JSON.stringify(memCache[key]);
-    const next = JSON.stringify(remote);
-    if (curr !== next) {
-      memCache[key] = remote;
-      lsSet(key, remote);
-      broadcast(key, remote);
-    }
-  }, POLL_INTERVAL);
+  scheduleNextPoll(key);
 }
 
 function stopPoll(key: string) {
   pollCount[key] = Math.max(0, (pollCount[key] || 1) - 1);
   if (pollCount[key] === 0 && pollTimers[key]) {
-    clearInterval(pollTimers[key]);
+    clearTimeout(pollTimers[key]);
     delete pollTimers[key];
   }
 }
